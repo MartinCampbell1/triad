@@ -74,6 +74,118 @@ async def telemetry_noop():
     return {"status": "ok"}
 
 
+# --- Model list for native dropdown ---
+
+TRIAD_MODELS = [
+    {
+        "model": "claude-opus-4-6",
+        "hidden": False,
+        "isDefault": True,
+        "displayName": "Claude Opus 4.6",
+        "provider": "claude",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Quick"},
+            {"reasoningEffort": "medium", "description": "Balanced"},
+            {"reasoningEffort": "high", "description": "Thorough"},
+            {"reasoningEffort": "xhigh", "description": "Maximum"},
+        ],
+    },
+    {
+        "model": "claude-sonnet-4-6",
+        "hidden": False,
+        "isDefault": False,
+        "displayName": "Claude Sonnet 4.6",
+        "provider": "claude",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Quick"},
+            {"reasoningEffort": "medium", "description": "Balanced"},
+            {"reasoningEffort": "high", "description": "Thorough"},
+        ],
+    },
+    {
+        "model": "claude-haiku-4-5",
+        "hidden": False,
+        "isDefault": False,
+        "displayName": "Claude Haiku 4.5",
+        "provider": "claude",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Quick"},
+            {"reasoningEffort": "medium", "description": "Balanced"},
+        ],
+    },
+    {
+        "model": "codex-mini-latest",
+        "hidden": False,
+        "isDefault": False,
+        "displayName": "Codex Mini",
+        "provider": "codex",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "medium", "description": "Balanced"},
+            {"reasoningEffort": "high", "description": "Thorough"},
+        ],
+    },
+    {
+        "model": "gpt-5.4",
+        "hidden": False,
+        "isDefault": False,
+        "displayName": "GPT-5.4",
+        "provider": "codex",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Quick"},
+            {"reasoningEffort": "medium", "description": "Balanced"},
+            {"reasoningEffort": "high", "description": "Thorough"},
+            {"reasoningEffort": "xhigh", "description": "Maximum"},
+        ],
+    },
+    {
+        "model": "gpt-5.3-codex",
+        "hidden": False,
+        "isDefault": False,
+        "displayName": "GPT-5.3 Codex",
+        "provider": "codex",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "medium", "description": "Balanced"},
+            {"reasoningEffort": "high", "description": "Thorough"},
+        ],
+    },
+    {
+        "model": "gemini-2.5-pro",
+        "hidden": False,
+        "isDefault": False,
+        "displayName": "Gemini 2.5 Pro",
+        "provider": "gemini",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "medium", "description": "Balanced"},
+            {"reasoningEffort": "high", "description": "Thorough"},
+        ],
+    },
+    {
+        "model": "gemini-2.5-flash",
+        "hidden": False,
+        "isDefault": False,
+        "displayName": "Gemini 2.5 Flash",
+        "provider": "gemini",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Quick"},
+            {"reasoningEffort": "medium", "description": "Balanced"},
+        ],
+    },
+]
+
+MODEL_TO_PROVIDER: dict[str, str] = {m["model"]: m["provider"] for m in TRIAD_MODELS}
+
+
+def resolve_provider(model: str) -> str:
+    """Map a model name to its provider. Falls back to active orchestrator."""
+    if model in MODEL_TO_PROVIDER:
+        return MODEL_TO_PROVIDER[model]
+    if model.startswith("claude"):
+        return "claude"
+    if model.startswith("gemini"):
+        return "gemini"
+    return "codex"  # gpt-*, codex-*, and anything else → codex
+
+
 @app.post("/api/responses")
 async def create_response(request: Request):
     """Main endpoint — accepts OpenAI Responses API format, routes to active provider."""
@@ -84,8 +196,8 @@ async def create_response(request: Request):
     model_requested = body.get("model", "")
     stream = body.get("stream", True)
 
-    # Get provider and profile
-    provider = _active_orchestrator
+    # Map model to provider (model selection overrides orchestrator)
+    provider = resolve_provider(model_requested) if model_requested else _active_orchestrator
     mgr = get_account_manager()
     profile = mgr.get_next(provider)
 

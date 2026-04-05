@@ -99,16 +99,40 @@ def patch_info_plist(app_path: Path) -> bool:
 
 
 def inject_proxy_launcher(source_dir: Path) -> bool:
-    """Copy launcher.js and inject require into bootstrap.js."""
-    # Copy launcher
-    launcher_src = Path(__file__).parent / "launcher.js"
+    """Generate launcher.js with absolute Python path and inject into bootstrap."""
+    import sys
+
+    # Find the actual Python that has triad installed
+    python_path = sys.executable  # The Python running this build script
+
+    # Generate launcher with hardcoded path
+    launcher_code = f'''// Triad Proxy Launcher — auto-generated with absolute Python path
+const {{ spawn }} = require("child_process");
+let _p = null, _r = 0;
+function startTriadProxy() {{
+  try {{
+    _p = spawn("{python_path}", ["-m", "triad.cli", "proxy", "--port", "9377"], {{
+      stdio: ["ignore", "ignore", "ignore"],
+      env: {{ ...process.env, PYTHONUNBUFFERED: "1" }},
+      detached: false,
+    }});
+    _p.on("error", function() {{}});
+    _p.on("close", function(c) {{
+      _p = null;
+      if (c !== 0 && c !== null && _r < 3) {{ _r++; setTimeout(startTriadProxy, 2000); }}
+    }});
+  }} catch(e) {{}}
+  const cl = function() {{ try {{ if(_p) _p.kill(); }} catch(e) {{}} }};
+  process.on("exit", cl);
+  process.on("SIGINT", function() {{ cl(); process.exit(0); }});
+  process.on("SIGTERM", function() {{ cl(); process.exit(0); }});
+}}
+module.exports = {{ startTriadProxy }};
+'''
+
     launcher_dst = source_dir / ".vite" / "build" / "triad-launcher.js"
-
-    if not launcher_src.exists():
-        print("  SKIP: launcher.js not found in patcher package")
-        return False
-
-    shutil.copy2(launcher_src, launcher_dst)
+    launcher_dst.write_text(launcher_code, encoding="utf-8")
+    print(f"  Generated launcher with Python: {python_path}")
 
     # Inject require into bootstrap.js
     bootstrap_path = source_dir / ".vite" / "build" / "bootstrap.js"
@@ -121,7 +145,6 @@ def inject_proxy_launcher(source_dir: Path) -> bool:
         print("  SKIP: launcher already injected")
         return True
 
-    # Prepend injection before existing code
     new_content = BOOTSTRAP_INJECTION + "\n" + content
     bootstrap_path.write_text(new_content, encoding="utf-8")
     print("  PATCHED: Proxy auto-start injected into bootstrap.js")
@@ -129,14 +152,20 @@ def inject_proxy_launcher(source_dir: Path) -> bool:
 
 
 def inject_orchestrator_widget(source_dir: Path) -> bool:
-    """Inject orchestrator rotation widget into the webview index.html."""
+    """No-op — model selection now happens via native dropdown through proxy /api/models."""
+    print("  SKIP: Using native model dropdown (no widget needed)")
+    return True
+
+
+def _inject_orchestrator_widget_DEPRECATED(source_dir: Path) -> bool:
+    """DEPRECATED: Was floating widget, now using native dropdown via proxy."""
     index_path = source_dir / "webview" / "index.html"
     if not index_path.exists():
         return False
 
     content = index_path.read_text(encoding="utf-8")
     if "triad-orchestrator-widget" in content:
-        return True  # Already injected
+        return True
 
     widget_html = '''
 <!-- TRIAD ORCHESTRATOR WIDGET -->
