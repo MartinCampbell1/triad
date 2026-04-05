@@ -61,13 +61,19 @@ PATCHES: list[StringPatch] = [
 CSP_ADDITIONS = "http://127.0.0.1:9377 ws://127.0.0.1:9377"
 
 BOOTSTRAP_INJECTION = '''
-// === TRIAD PROXY AUTO-START ===
+// === TRIAD PATCHES ===
+// Suppress EPIPE errors — Electron pipes can break when Sentry/telemetry writes to closed streams
+process.on("uncaughtException", function(err) {
+  if (err && err.code === "EPIPE") return;
+  throw err;
+});
+process.stdout.on("error", function(err) { if (err.code !== "EPIPE") throw err; });
+process.stderr.on("error", function(err) { if (err.code !== "EPIPE") throw err; });
+
+// Start Triad Proxy
 try {
-  const { startTriadProxy } = require('./triad-launcher.js');
-  startTriadProxy();
-  console.log('[triad] Proxy auto-start initiated');
-} catch (e) {
-  console.error('[triad] Failed to start proxy:', e.message);
-}
+  var _tl = require("./triad-launcher.js");
+  _tl.startTriadProxy();
+} catch (e) {}
 // === END TRIAD ===
 '''
