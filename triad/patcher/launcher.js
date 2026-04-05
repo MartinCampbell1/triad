@@ -6,58 +6,56 @@ const path = require('path');
 const fs = require('fs');
 
 function findPython() {
+  const home = process.env.HOME || '';
   const candidates = [
-    path.join(process.env.HOME || '', '.triad', '.venv', 'bin', 'python3'),
-    path.join(process.env.HOME || '', 'triad', '.venv', 'bin', 'python3'),
+    path.join(home, 'triad', '.venv', 'bin', 'python3'),
+    path.join(home, '.triad', '.venv', 'bin', 'python3'),
     '/opt/homebrew/bin/python3',
     '/usr/local/bin/python3',
     '/usr/bin/python3',
   ];
   for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
+    try { if (fs.existsSync(p)) return p; } catch(e) {}
   }
   return 'python3';
 }
 
 let proxyProcess = null;
+let restartCount = 0;
+const MAX_RESTARTS = 3;
 
 function startTriadProxy() {
   const python = findPython();
-  proxyProcess = spawn(python, ['-m', 'triad.cli', 'proxy', '--port', '9377'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
-    detached: false,
-  });
 
-  proxyProcess.stdout.on('data', (data) => {
-    console.log(`[triad-proxy] ${data.toString().trim()}`);
-  });
+  try {
+    proxyProcess = spawn(python, ['-m', 'triad.cli', 'proxy', '--port', '9377'], {
+      stdio: ['ignore', 'ignore', 'ignore'],  // Detach all stdio to avoid EPIPE
+      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      detached: false,
+    });
 
-  proxyProcess.stderr.on('data', (data) => {
-    console.error(`[triad-proxy] ${data.toString().trim()}`);
-  });
+    proxyProcess.on('error', (err) => {
+      // Python not found or spawn failed — silently ignore
+    });
 
-  proxyProcess.on('close', (code) => {
-    console.log(`[triad-proxy] exited with code ${code}`);
-    // Restart if crashed
-    if (code !== 0 && code !== null) {
-      console.log('[triad-proxy] restarting in 2s...');
-      setTimeout(startTriadProxy, 2000);
-    }
-  });
+    proxyProcess.on('close', (code) => {
+      proxyProcess = null;
+      if (code !== 0 && code !== null && restartCount < MAX_RESTARTS) {
+        restartCount++;
+        setTimeout(startTriadProxy, 2000);
+      }
+    });
+  } catch (e) {
+    // Spawn failed entirely — app still works, just without proxy
+  }
 
   // Cleanup on app exit
-  process.on('exit', () => {
-    if (proxyProcess) proxyProcess.kill();
-  });
-  process.on('SIGINT', () => {
-    if (proxyProcess) proxyProcess.kill();
-    process.exit(0);
-  });
-  process.on('SIGTERM', () => {
-    if (proxyProcess) proxyProcess.kill();
-    process.exit(0);
-  });
+  const cleanup = () => {
+    try { if (proxyProcess) proxyProcess.kill(); } catch(e) {}
+  };
+  process.on('exit', cleanup);
+  process.on('SIGINT', () => { cleanup(); process.exit(0); });
+  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
 }
 
 module.exports = { startTriadProxy };
