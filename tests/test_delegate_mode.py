@@ -16,3 +16,8 @@ def test_delegate_config():
         ],
     )
     assert len(cfg.tasks) == 2
+
+
+def test_delegate_task_default_pending():
+    task = DelegateTask(prompt="test", provider="codex")
+    assert task.status == "pending"

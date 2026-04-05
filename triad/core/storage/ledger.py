@@ -101,14 +101,10 @@ class Ledger:
         artifact_id: str | None = None,
     ) -> int:
         now = time.time()
-        rows = await self._db.execute_fetchall(
-            "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE session_id = ?",
-            (session_id,),
-        )
-        seq = rows[0][0]
         cursor = await self._db.execute(
-            "INSERT INTO events (session_id, seq, event_type, agent, content, artifact_id, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (session_id, seq, event_type, agent, content, artifact_id, now),
+            """INSERT INTO events (session_id, seq, event_type, agent, content, artifact_id, ts)
+            VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE session_id = ?), ?, ?, ?, ?, ?)""",
+            (session_id, session_id, event_type, agent, content, artifact_id, now),
         )
         await self._db.commit()
         return cursor.lastrowid
