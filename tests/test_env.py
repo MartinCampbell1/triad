@@ -42,3 +42,33 @@ def test_build_base_env_filters():
 def test_build_base_env_sets_default_path():
     result = build_runtime_base_env({})
     assert "PATH" in result
+
+
+def test_default_strips_anthropic_api_key():
+    source = {"PATH": "/usr/bin", "ANTHROPIC_API_KEY": "sk-ant-xxx"}
+    result = build_runtime_base_env(source)
+    assert "ANTHROPIC_API_KEY" not in result
+
+
+def test_default_strips_openai_api_key():
+    source = {"PATH": "/usr/bin", "OPENAI_API_KEY": "sk-xxx"}
+    result = build_runtime_base_env(source)
+    assert "OPENAI_API_KEY" not in result
+
+
+def test_default_strips_google_api_key():
+    source = {"PATH": "/usr/bin", "GOOGLE_API_KEY": "AIza-xxx"}
+    result = build_runtime_base_env(source)
+    assert "GOOGLE_API_KEY" not in result
+
+
+def test_explicit_allow_dangerous():
+    source = {"PATH": "/usr/bin", "ANTHROPIC_API_KEY": "sk-ant-xxx"}
+    result = build_runtime_base_env(source, allow_dangerous_auth=True)
+    assert "ANTHROPIC_API_KEY" in result
+
+
+def test_non_dangerous_prefix_keys_pass():
+    source = {"PATH": "/usr/bin", "ANTHROPIC_VERSION": "2023-06-01"}
+    result = build_runtime_base_env(source)
+    assert "ANTHROPIC_VERSION" in result

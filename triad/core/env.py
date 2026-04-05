@@ -19,6 +19,13 @@ RUNTIME_ENV_PREFIX_ALLOWLIST: tuple[str, ...] = (
     "GOOGLE_", "GEMINI_",
 )
 
+DANGEROUS_AUTH_KEYS: frozenset[str] = frozenset({
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+})
+
 
 def runtime_env_key_allowed(key: str) -> bool:
     """Return whether an inherited environment key is safe to forward."""
@@ -30,13 +37,21 @@ def runtime_env_key_allowed(key: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in RUNTIME_ENV_PREFIX_ALLOWLIST)
 
 
-def build_runtime_base_env(base_env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Return a sanitized runtime env containing only safe inherited keys."""
+def build_runtime_base_env(
+    base_env: Mapping[str, str] | None = None,
+    allow_dangerous_auth: bool = False,
+) -> dict[str, str]:
+    """Return a sanitized runtime env. Dangerous auth keys stripped by default."""
     source = dict(base_env) if base_env is not None else dict(os.environ)
     sanitized = {
         str(k): str(v)
         for k, v in source.items()
         if runtime_env_key_allowed(str(k))
     }
+
+    if not allow_dangerous_auth:
+        for key in DANGEROUS_AUTH_KEYS:
+            sanitized.pop(key, None)
+
     sanitized.setdefault("PATH", str(source.get("PATH") or os.defpath))
     return sanitized

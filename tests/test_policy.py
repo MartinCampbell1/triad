@@ -17,3 +17,4 @@ def test_check_warns_on_openai_api_key():
     guard = PolicyGuard()
     warnings = guard.check_environment({"OPENAI_API_KEY": "sk-xxx"})
     assert any("OPENAI_API_KEY" in w for w in warnings)
+    assert any("Stripped" in w for w in warnings)
