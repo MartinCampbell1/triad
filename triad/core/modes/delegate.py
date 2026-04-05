@@ -94,8 +94,25 @@ class DelegateMode:
                 )
                 task.worktree_path = wt_path
                 workdir = wt_path
-            except Exception:
-                pass
+            except Exception as exc:
+                task.status = "failed"
+                task.result = ExecutionResult(
+                    success=False,
+                    returncode=None,
+                    stdout="",
+                    stderr=f"Worktree creation failed: {exc}",
+                    timed_out=False,
+                    rate_limited=False,
+                )
+                await self.ledger.log_event(
+                    self.session_id,
+                    "lane.failed",
+                    agent=f"{task.provider}/{profile.name}",
+                    content=task.result.stderr,
+                )
+                if self.on_task_completed:
+                    self.on_task_completed(task)
+                return
 
         if self.on_task_started:
             self.on_task_started(task)
