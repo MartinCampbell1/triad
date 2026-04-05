@@ -35,46 +35,40 @@ class MainScreen(Screen):
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        actions = {
-            "solo": self.action_solo,
-            "critic": self.action_critic,
-            "delegate": self.action_delegate,
-            "history": self.action_history,
-            "accounts": self.action_accounts,
-        }
-        handler = actions.get(event.button.id)
-        if handler:
-            handler()
+        action_name = event.button.id
+        if action_name in ("solo", "critic", "delegate", "history", "accounts"):
+            self.run_action(action_name)
 
-    def action_solo(self) -> None:
+    async def action_solo(self) -> None:
         import asyncio
         from pathlib import Path
-        from triad.core.modes.solo import SoloMode
+
         from triad.core.accounts.manager import AccountManager
+        from triad.core.modes.solo import SoloMode
         from triad.core.storage.ledger import Ledger
 
-        async def _setup():
-            db_path = Path.home() / ".triad" / "triad.db"
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            ledger = Ledger(db_path=db_path)
-            await ledger.initialize()
-            profiles_dir = Path.home() / ".cli-profiles"
-            mgr = AccountManager(profiles_dir=profiles_dir)
-            mgr.discover()
-            return SoloMode(ledger=ledger, account_manager=mgr), ledger
+        config_obj = self.app.triad_config  # type: ignore[attr-defined]
 
-        # Run pre-launch async setup
-        loop = asyncio.get_event_loop()
-        solo, ledger = loop.run_until_complete(_setup())
-        loop.run_until_complete(solo.pre_launch())
+        db_path = config_obj.db_path
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Suspend TUI and launch claude
-        with self.app.suspend():
-            exit_code = solo.launch(workdir=Path.cwd())
+        ledger = Ledger(db_path=db_path)
+        await ledger.initialize()
 
-        # Post-launch logging
-        loop.run_until_complete(solo.post_launch(exit_code))
-        loop.run_until_complete(ledger.close())
+        mgr = AccountManager(profiles_dir=config_obj.profiles_dir)
+        mgr.discover()
+
+        solo = SoloMode(ledger=ledger, account_manager=mgr)
+        await solo.pre_launch()
+
+        exit_code = 1
+        try:
+            with self.app.suspend():
+                exit_code = await asyncio.to_thread(solo.launch, Path.cwd())
+        finally:
+            await solo.post_launch(exit_code)
+            await ledger.close()
+
         self.notify(f"Claude Code exited (code {exit_code}). Session logged.")
 
     def action_critic(self) -> None:
