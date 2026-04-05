@@ -122,20 +122,20 @@ class DelegateScreen(Screen):
         log.write(f"\n[bold]Running {len(self._tasks)} tasks in parallel...[/bold]")
 
         try:
-            profiles_dir = Path.home() / ".cli-profiles"
-            account_mgr = AccountManager(profiles_dir=profiles_dir)
+            config_obj = self.app.triad_config  # type: ignore[attr-defined]
+            account_mgr = AccountManager(profiles_dir=config_obj.profiles_dir)
             account_mgr.discover()
 
-            db_path = Path.home() / ".triad" / "triad.db"
+            db_path = config_obj.db_path
             db_path.parent.mkdir(parents=True, exist_ok=True)
             ledger = Ledger(db_path=db_path)
             await ledger.initialize()
 
-            worktree_mgr = WorktreeManager(base_dir=Path.home() / ".triad" / "worktrees")
+            worktree_mgr = WorktreeManager(base_dir=config_obj.worktrees_dir)
 
             config = DelegateConfig(
                 tasks=list(self._tasks),
-                timeout=1800,
+                timeout=config_obj.delegate_timeout,
                 use_worktrees=True,
                 repo_path=Path.cwd(),
             )

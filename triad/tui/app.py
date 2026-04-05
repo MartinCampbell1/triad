@@ -1,8 +1,11 @@
 """Triad Textual TUI application."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual.app import App
 
+from triad.core.config import TriadConfig, load_config
 from triad.tui.screens.main import MainScreen
 
 
@@ -22,7 +25,10 @@ class TriadApp(App):
     }
     """
 
-    SCREENS = {"main": MainScreen}
+    def __init__(self, config: TriadConfig | None = None):
+        super().__init__()
+        config_path = Path.home() / ".triad" / "config.yaml"
+        self.triad_config = config or load_config(config_path)
 
     def on_mount(self) -> None:
-        self.push_screen("main")
+        self.push_screen(MainScreen())

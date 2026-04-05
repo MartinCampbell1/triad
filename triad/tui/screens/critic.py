@@ -175,7 +175,8 @@ class CriticScreen(Screen):
         log = self.query_one("#log-area", RichLog)
 
         try:
-            profiles_dir = Path.home() / ".cli-profiles"
+            config_obj = self.app.triad_config  # type: ignore[attr-defined]
+            profiles_dir = config_obj.profiles_dir
             account_mgr = AccountManager(profiles_dir=profiles_dir)
             account_mgr.discover()
 
@@ -196,7 +197,7 @@ class CriticScreen(Screen):
                 )
                 return
 
-            db_path = Path.home() / ".triad" / "triad.db"
+            db_path = config_obj.db_path
             db_path.parent.mkdir(parents=True, exist_ok=True)
             ledger = Ledger(db_path=db_path)
             await ledger.initialize()
@@ -206,7 +207,7 @@ class CriticScreen(Screen):
             config = CriticConfig(
                 writer_provider=self.writer_provider,
                 critic_provider=self.critic_provider,
-                max_rounds=5,
+                max_rounds=config_obj.critic_max_rounds,
                 workdir=Path.cwd(),
             )
 

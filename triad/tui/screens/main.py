@@ -102,5 +102,13 @@ class MainScreen(Screen):
         from triad.tui.screens.accounts import AccountsScreen
         self.app.push_screen(AccountsScreen())
 
+    def on_mount(self) -> None:
+        import os
+        from triad.core.policy import PolicyGuard
+        guard = PolicyGuard()
+        warnings = guard.check_environment(dict(os.environ))
+        for w in warnings:
+            self.notify(w, severity="warning", timeout=10)
+
     def action_quit(self) -> None:
         self.app.exit()
