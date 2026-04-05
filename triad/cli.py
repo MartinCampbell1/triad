@@ -73,5 +73,46 @@ def sessions():
     asyncio.run(_list())
 
 
+@app.command()
+def export(
+    session_id: str = typer.Argument(..., help="Session ID to export"),
+    format: str = typer.Option("markdown", "--format", "-f", help="Export format: jsonl or markdown"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Export a session to JSONL or Markdown."""
+    import asyncio
+    from pathlib import Path
+    from triad.core.storage.ledger import Ledger
+    from triad.core.export import export_session_jsonl, export_session_markdown
+
+    async def _export():
+        db_path = Path.home() / ".triad" / "triad.db"
+        if not db_path.exists():
+            typer.echo("No database found.")
+            raise typer.Exit(1)
+
+        ledger = Ledger(db_path=db_path)
+        await ledger.initialize()
+
+        session = await ledger.get_session(session_id)
+        if not session:
+            typer.echo(f"Session {session_id} not found.")
+            await ledger.close()
+            raise typer.Exit(1)
+
+        exports_dir = Path.home() / ".triad" / "exports"
+        if format == "jsonl":
+            out_path = Path(output) if output else exports_dir / f"{session_id}.jsonl"
+            result = await export_session_jsonl(ledger, session_id, out_path)
+        else:
+            out_path = Path(output) if output else exports_dir / f"{session_id}.md"
+            result = await export_session_markdown(ledger, session_id, out_path)
+
+        await ledger.close()
+        typer.echo(f"Exported to: {result}")
+
+    asyncio.run(_export())
+
+
 if __name__ == "__main__":
     app()

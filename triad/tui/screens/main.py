@@ -1,7 +1,6 @@
 """Main screen — mode selector."""
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -48,8 +47,35 @@ class MainScreen(Screen):
             handler()
 
     def action_solo(self) -> None:
+        import asyncio
+        from pathlib import Path
+        from triad.core.modes.solo import SoloMode
+        from triad.core.accounts.manager import AccountManager
+        from triad.core.storage.ledger import Ledger
+
+        async def _setup():
+            db_path = Path.home() / ".triad" / "triad.db"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            ledger = Ledger(db_path=db_path)
+            await ledger.initialize()
+            profiles_dir = Path.home() / ".cli-profiles"
+            mgr = AccountManager(profiles_dir=profiles_dir)
+            mgr.discover()
+            return SoloMode(ledger=ledger, account_manager=mgr), ledger
+
+        # Run pre-launch async setup
+        loop = asyncio.get_event_loop()
+        solo, ledger = loop.run_until_complete(_setup())
+        loop.run_until_complete(solo.pre_launch())
+
+        # Suspend TUI and launch claude
         with self.app.suspend():
-            subprocess.run(["claude"])
+            exit_code = solo.launch(workdir=Path.cwd())
+
+        # Post-launch logging
+        loop.run_until_complete(solo.post_launch(exit_code))
+        loop.run_until_complete(ledger.close())
+        self.notify(f"Claude Code exited (code {exit_code}). Session logged.")
 
     def action_critic(self) -> None:
         from triad.tui.screens.critic import CriticScreen, RoleSelectScreen
