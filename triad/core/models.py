@@ -43,6 +43,7 @@ class Profile:
 
     def mark_success(self) -> None:
         self.consecutive_errors = 0
+        self.is_available = True
 
     def check_available(self) -> bool:
         if not self.is_available and time.time() >= self.cooldown_until:
@@ -72,3 +73,21 @@ class CriticReport:
     issues: list[CriticIssue] = field(default_factory=list)
     lgtm: bool = False
     raw_text: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "status": self.status,
+            "issues": [
+                {
+                    "id": issue.id,
+                    "severity": issue.severity.value,
+                    "kind": issue.kind,
+                    "file": issue.file,
+                    "line": issue.line,
+                    "summary": issue.summary,
+                    "suggested_fix": issue.suggested_fix,
+                }
+                for issue in self.issues
+            ],
+            "lgtm": self.lgtm,
+        }
