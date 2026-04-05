@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +25,14 @@ RATE_LIMIT_PATTERNS: tuple[str, ...] = (
 def is_rate_limited(text: str) -> bool:
     lower = text.lower()
     return any(pat in lower for pat in RATE_LIMIT_PATTERNS)
+
+
+@dataclass
+class StreamEvent:
+    """One event from a streaming provider execution."""
+    kind: str  # "start", "text", "tool_use", "error", "done"
+    text: str = ""
+    data: dict | None = None
 
 
 @dataclass
@@ -95,6 +103,56 @@ class ProviderAdapter(ABC):
                 success=False, returncode=None, stdout="",
                 stderr=str(exc), timed_out=False, rate_limited=False,
             )
+
+    async def execute_stream(
+        self,
+        profile: Profile,
+        prompt: str,
+        workdir: Path,
+        timeout: int = 1800,
+        base_env: Mapping[str, str] | None = None,
+        **kwargs,
+    ) -> AsyncIterator[StreamEvent]:
+        """Execute a headless CLI command, yielding events line-by-line."""
+        cmd = self.headless_command(prompt, **kwargs)
+        env = self.build_env(profile, base_env)
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(workdir),
+            env=env,
+        )
+
+        yield StreamEvent(kind="start")
+
+        try:
+            async def _read_lines():
+                assert proc.stdout is not None
+                async for line in proc.stdout:
+                    decoded = line.decode("utf-8", errors="replace").rstrip()
+                    if decoded:
+                        yield decoded
+
+            async for line in _read_lines():
+                yield StreamEvent(kind="text", text=line)
+
+        except asyncio.CancelledError:
+            proc.kill()
+            yield StreamEvent(kind="error", text="Cancelled")
+            return
+
+        await proc.wait()
+
+        # Read any stderr
+        if proc.stderr:
+            stderr_bytes = await proc.stderr.read()
+            stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+            if stderr:
+                yield StreamEvent(kind="error", text=stderr)
+
+        yield StreamEvent(kind="done", data={"returncode": proc.returncode})
 
     def run_interactive(self, profile: Profile, workdir: Path, base_env: Mapping[str, str] | None = None) -> int:
         cmd = self.interactive_command()

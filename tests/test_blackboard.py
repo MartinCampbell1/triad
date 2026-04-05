@@ -66,3 +66,12 @@ def test_blackboard_from_dict():
     bb = Blackboard.from_dict(data)
     assert bb.task == "test"
     assert bb.current_plan == ["a"]
+
+
+def test_blackboard_constraints_roundtrip():
+    bb = Blackboard()
+    bb.accepted_constraints = ["JWT only", "no breaking changes"]
+    d = bb.to_dict()
+    assert "accepted_constraints" in d
+    bb2 = Blackboard.from_dict(d)
+    assert bb2.accepted_constraints == ["JWT only", "no breaking changes"]

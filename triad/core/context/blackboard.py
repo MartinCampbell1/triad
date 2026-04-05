@@ -43,6 +43,7 @@ class Blackboard:
             "open_issues": self.open_issues,
             "latest_artifacts": self.latest_artifacts,
             "decisions_made": self.decisions_made,
+            "accepted_constraints": self.accepted_constraints,
         }
 
     @classmethod
@@ -53,4 +54,5 @@ class Blackboard:
             open_issues=data.get("open_issues", []),
             latest_artifacts=data.get("latest_artifacts", {}),
             decisions_made=data.get("decisions_made", []),
+            accepted_constraints=data.get("accepted_constraints", []),
         )

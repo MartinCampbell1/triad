@@ -45,7 +45,7 @@ class Ledger:
             )
         """)
         await self._db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_session ON events (session_id, seq)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_session_seq ON events (session_id, seq)"
         )
 
         await self._db.execute("""

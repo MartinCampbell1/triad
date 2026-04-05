@@ -65,9 +65,32 @@ class DelegateMode:
 
     async def run_all(self) -> list[DelegateTask]:
         coros = [self._run_task(task) for task in self.config.tasks]
-        await asyncio.gather(*coros, return_exceptions=True)
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+        # Check for failures
+        failed_count = sum(1 for t in self.config.tasks if t.status == "failed")
+        rate_limited_count = sum(1 for t in self.config.tasks if t.status == "rate_limited")
+        total = len(self.config.tasks)
+
+        if failed_count == total:
+            status = "failed"
+        elif failed_count > 0 or rate_limited_count > 0:
+            status = "partial_failure"
+        else:
+            status = "completed"
+
+        # Also check for unexpected exceptions from gather
+        for r in results:
+            if isinstance(r, Exception):
+                status = "partial_failure"
+                await self.ledger.log_event(
+                    self.session_id, "lane.exception",
+                    content=str(r)[:500],
+                )
+                break
+
         self.state = ModeState.COMPLETED
-        await self.ledger.update_session_status(self.session_id, "completed")
+        await self.ledger.update_session_status(self.session_id, status)
         return self.config.tasks
 
     async def _run_task(self, task: DelegateTask) -> None:

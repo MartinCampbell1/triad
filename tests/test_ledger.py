@@ -64,3 +64,15 @@ async def test_store_artifact(ledger: Ledger):
     aid = await ledger.store_artifact(sid, kind="writer_output", content="some code here")
     assert aid is not None
     assert aid.startswith("ta_")
+
+
+async def test_log_event_seq_is_unique(ledger: Ledger):
+    """Verify sequential events get unique seq numbers even if logged rapidly."""
+    sid = await ledger.create_session(mode="test", task="seq test")
+    for i in range(10):
+        await ledger.log_event(session_id=sid, event_type=f"event_{i}")
+    events = await ledger.get_events(sid)
+    seqs = [e["seq"] for e in events]
+    assert len(seqs) == 10
+    assert len(set(seqs)) == 10  # All unique
+    assert seqs == sorted(seqs)  # Monotonically increasing
