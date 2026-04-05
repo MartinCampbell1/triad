@@ -25,10 +25,13 @@ class TriadApp(App):
     }
     """
 
-    def __init__(self, config: TriadConfig | None = None):
+    def __init__(self, config: TriadConfig | None = None, initial_mode: str | None = None):
         super().__init__()
         config_path = Path.home() / ".triad" / "config.yaml"
         self.triad_config = config or load_config(config_path)
+        self.initial_mode = initial_mode
 
     def on_mount(self) -> None:
         self.push_screen(MainScreen())
+        if self.initial_mode:
+            self.set_timer(0.1, lambda: self.query_one(MainScreen).run_action(f"action_{self.initial_mode}"))

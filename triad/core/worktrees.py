@@ -37,3 +37,14 @@ class WorktreeManager:
         if not self.base_dir.exists():
             return []
         return [p for p in self.base_dir.iterdir() if p.is_dir()]
+
+    def cleanup_all(self) -> int:
+        """Remove all worktrees. Returns count removed."""
+        removed = 0
+        for wt in self.list_active():
+            try:
+                self.remove(wt)
+                removed += 1
+            except Exception:
+                pass
+        return removed

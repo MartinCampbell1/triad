@@ -72,6 +72,7 @@ class CriticMode:
         ledger: Ledger,
         blackboard: Blackboard,
         worktree_manager: "WorktreeManager | None" = None,
+        account_manager=None,
     ):
         self.config = config
         self.writer_adapter = writer_adapter
@@ -81,9 +82,9 @@ class CriticMode:
         self.ledger = ledger
         self.blackboard = blackboard
         self.worktree_manager = worktree_manager
+        self._account_manager = account_manager
         self.state = ModeState.IDLE
         self.session_id: str | None = None
-        self._writer_session_id: str | None = None
         self._rounds: list[RoundResult] = []
         self._session_workdir: Path | None = None
 
@@ -143,8 +144,14 @@ class CriticMode:
             profile=self.writer_profile,
             prompt=writer_prompt,
             workdir=self._session_workdir,
-            session_id=self._writer_session_id,
         )
+        # Track writer rate-limit state
+        if writer_result.rate_limited:
+            if self._account_manager:
+                self._account_manager.mark_rate_limited(self.config.writer_provider, self.writer_profile.name)
+        elif writer_result.success:
+            if self._account_manager:
+                self._account_manager.mark_success(self.config.writer_provider, self.writer_profile.name)
         writer_output = writer_result.stdout
         await self.ledger.log_event(
             self.session_id, "provider.finished",
@@ -172,6 +179,13 @@ class CriticMode:
             prompt=critic_prompt,
             workdir=self._session_workdir,
         )
+        # Track critic rate-limit state
+        if critic_result.rate_limited:
+            if self._account_manager:
+                self._account_manager.mark_rate_limited(self.config.critic_provider, self.critic_profile.name)
+        elif critic_result.success:
+            if self._account_manager:
+                self._account_manager.mark_success(self.config.critic_provider, self.critic_profile.name)
         critic_output = critic_result.stdout
         await self.ledger.log_event(
             self.session_id, "provider.finished",

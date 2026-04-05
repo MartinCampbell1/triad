@@ -19,7 +19,7 @@ def main(
     if ctx.invoked_subcommand is not None:
         return
     from triad.tui.app import TriadApp
-    t = TriadApp()
+    t = TriadApp(initial_mode=mode)
     t.run()
 
 
@@ -28,8 +28,10 @@ def accounts():
     """Show account status."""
     from pathlib import Path
     from triad.core.accounts.manager import AccountManager
+    from triad.core.config import load_config
 
-    profiles_dir = Path.home() / ".cli-profiles"
+    config = load_config(Path.home() / ".triad" / "config.yaml")
+    profiles_dir = config.profiles_dir
     if not profiles_dir.exists():
         typer.echo(f"No profiles directory found at {profiles_dir}")
         raise typer.Exit(1)
@@ -112,6 +114,28 @@ def export(
         typer.echo(f"Exported to: {result}")
 
     asyncio.run(_export())
+
+
+@app.command()
+def worktrees(action: str = typer.Argument("list", help="Action: list or prune")):
+    """Manage worktrees."""
+    from pathlib import Path
+    from triad.core.config import load_config
+    from triad.core.worktrees import WorktreeManager
+
+    config = load_config(Path.home() / ".triad" / "config.yaml")
+    mgr = WorktreeManager(base_dir=config.worktrees_dir)
+
+    if action == "prune":
+        count = mgr.cleanup_all()
+        typer.echo(f"Removed {count} worktrees.")
+    else:
+        wts = mgr.list_active()
+        if not wts:
+            typer.echo("No active worktrees.")
+        else:
+            for wt in wts:
+                typer.echo(f"  {wt.name}  {wt}")
 
 
 if __name__ == "__main__":

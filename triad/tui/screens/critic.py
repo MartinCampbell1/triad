@@ -308,6 +308,11 @@ class CriticScreen(Screen):
         log.write("\n[bold]Stopped by user.[/bold]")
         if self._critic_mode:
             self._critic_mode.state = ModeState.COMPLETED
+            # Schedule async cleanup
+            async def _cleanup():
+                await self._critic_mode.close()
+            import asyncio
+            asyncio.ensure_future(_cleanup())
 
     def action_swap(self) -> None:
         if not self._critic_mode or self._running:
