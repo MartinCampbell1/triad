@@ -11,10 +11,13 @@ class ClaudeAdapter(ProviderAdapter):
     provider = "claude"
     cli_name = "claude"
 
-    def headless_command(self, prompt: str, session_id: str | None = None, **kwargs) -> list[str]:
+    def headless_command(self, prompt: str, session_id: str | None = None, policy: "ExecutionPolicy | None" = None, **kwargs) -> list[str]:
+        from triad.core.execution_policy import ExecutionPolicy
         cmd = ["claude", "-p", prompt, "--output-format", "stream-json"]
         if session_id:
             cmd.extend(["--resume", session_id])
+        if policy and policy.sandbox == "read_only":
+            cmd.extend(["--permission-mode", "bypassPermissions", "--allowedTools", "Read,Grep,Glob,Bash(git diff *),Bash(git status *),Bash(git log *)"])
         return cmd
 
     def interactive_command(self) -> list[str]:

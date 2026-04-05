@@ -10,8 +10,12 @@ class CodexAdapter(ProviderAdapter):
     provider = "codex"
     cli_name = "codex"
 
-    def headless_command(self, prompt: str, model: str | None = None, **kwargs) -> list[str]:
-        cmd = ["codex", "exec", "--full-auto"]
+    def headless_command(self, prompt: str, model: str | None = None, policy: "ExecutionPolicy | None" = None, **kwargs) -> list[str]:
+        from triad.core.execution_policy import ExecutionPolicy
+        if policy and policy.sandbox == "read_only":
+            cmd = ["codex", "exec", "--sandbox", "read-only"]
+        else:
+            cmd = ["codex", "exec", "--full-auto"]
         if model:
             cmd.extend(["-m", model])
         cmd.append(prompt)
