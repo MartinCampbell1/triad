@@ -178,6 +178,15 @@ class CriticMode:
     def rounds(self) -> list[RoundResult]:
         return list(self._rounds)
 
+    def swap_roles(self) -> None:
+        """Swap writer and critic — adapters, profiles, and config."""
+        self.writer_adapter, self.critic_adapter = self.critic_adapter, self.writer_adapter
+        self.writer_profile, self.critic_profile = self.critic_profile, self.writer_profile
+        self.config.writer_provider, self.config.critic_provider = (
+            self.config.critic_provider,
+            self.config.writer_provider,
+        )
+
     @staticmethod
     def parse_critic_output(raw: str) -> CriticReport:
         # Try parsing the entire string as JSON first

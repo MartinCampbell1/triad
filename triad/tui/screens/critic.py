@@ -306,17 +306,22 @@ class CriticScreen(Screen):
             self._critic_mode.state = ModeState.COMPLETED
 
     def action_swap(self) -> None:
-        if self._critic_mode and not self._running:
-            old_writer = self.writer_provider
-            self.writer_provider = self.critic_provider
-            self.critic_provider = old_writer
-            log = self.query_one("#log-area", RichLog)
-            log.write(
-                f"\n[bold magenta]Roles swapped![/bold magenta] "
-                f"Writer: [cyan]{self.writer_provider}[/cyan] | "
-                f"Critic: [yellow]{self.critic_provider}[/yellow]"
-            )
-            self.query_one("#status-bar", Static).update(
-                f"[bold]Critic Mode[/bold] — Writer: [cyan]{self.writer_provider}[/cyan] | "
-                f"Critic: [yellow]{self.critic_provider}[/yellow]"
-            )
+        if not self._critic_mode or self._running:
+            return
+
+        mode = self._critic_mode
+        mode.swap_roles()
+
+        self.writer_provider = mode.config.writer_provider
+        self.critic_provider = mode.config.critic_provider
+
+        log = self.query_one("#log-area", RichLog)
+        log.write(
+            f"\n[bold magenta]Roles swapped![/bold magenta] "
+            f"Writer: [cyan]{self.writer_provider}[/cyan] | "
+            f"Critic: [yellow]{self.critic_provider}[/yellow]"
+        )
+        self.query_one("#status-bar", Static).update(
+            f"[bold]Critic Mode[/bold] — Writer: [cyan]{self.writer_provider}[/cyan] | "
+            f"Critic: [yellow]{self.critic_provider}[/yellow]"
+        )
