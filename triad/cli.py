@@ -1,6 +1,8 @@
 """Triad CLI — entry point."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 
 app = typer.Typer(
@@ -117,6 +119,18 @@ def export(
 
 
 @app.command()
+def proxy(
+    port: int = typer.Option(9377, "--port", "-p", help="Port to listen on"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to"),
+):
+    """Start the Triad Proxy server."""
+    import uvicorn
+    from triad.proxy.server import app as proxy_app
+    typer.echo(f"Starting Triad Proxy on {host}:{port}...")
+    uvicorn.run(proxy_app, host=host, port=port, log_level="info")
+
+
+@app.command()
 def worktrees(action: str = typer.Argument("list", help="Action: list or prune")):
     """Manage worktrees."""
     from pathlib import Path
@@ -136,6 +150,33 @@ def worktrees(action: str = typer.Argument("list", help="Action: list or prune")
         else:
             for wt in wts:
                 typer.echo(f"  {wt.name}  {wt}")
+
+
+@app.command()
+def patch(
+    app_path: str = typer.Option("/Applications/Codex.app", "--app", help="Path to Codex.app"),
+    work_dir: str = typer.Option(str(Path.home() / "codex-fork"), "--workdir", help="Working directory"),
+):
+    """Patch Codex Desktop App to use Triad Proxy."""
+    from triad.patcher.apply import apply_all_patches
+    result = apply_all_patches(
+        app_path=Path(app_path),
+        work_dir=Path(work_dir),
+    )
+    typer.echo(f"\nPatches applied: {result['applied']}, Skipped: {result['skipped']}")
+
+
+@app.command()
+def unpatch(
+    app_path: str = typer.Option("/Applications/Codex.app", "--app", help="Path to Codex.app"),
+    work_dir: str = typer.Option(str(Path.home() / "codex-fork"), "--workdir", help="Working directory"),
+):
+    """Restore original Codex Desktop App from backup."""
+    from triad.patcher.apply import restore_original
+    restore_original(
+        app_path=Path(app_path),
+        work_dir=Path(work_dir),
+    )
 
 
 if __name__ == "__main__":
