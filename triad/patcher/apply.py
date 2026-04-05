@@ -256,9 +256,11 @@ def build_standalone_app(
         plist = plistlib.load(f)
 
     plist["CFBundleDisplayName"] = "Triad"
-    plist["CFBundleName"] = "Triad"
+    # CFBundleName MUST stay "Codex" — Electron uses it to find helper apps
+    # (Codex Helper.app, Codex Helper (GPU).app, etc.)
+    plist["CFBundleName"] = "Codex"
     plist["CFBundleIdentifier"] = "com.triad.orchestrator"
-    plist["CFBundleExecutable"] = "Codex"  # Keep executable name (it's the Electron binary)
+    plist["CFBundleExecutable"] = "Codex"
 
     # Remove integrity check
     if "ElectronAsarIntegrity" in plist:
@@ -315,8 +317,20 @@ def build_standalone_app(
     print("\n9. Repacking asar...")
     repack_asar(extract_dir, asar_path)
 
-    # Step 10: Re-sign
-    print("\n10. Signing app...")
+    # Step 10: Disable Electron asar integrity fuse
+    print("\n10. Disabling asar integrity fuse...")
+    fuse_result = subprocess.run(
+        ["npx", "@electron/fuses", "write", "--app", str(target_app),
+         "EnableEmbeddedAsarIntegrityValidation=off"],
+        capture_output=True, text=True,
+    )
+    if fuse_result.returncode == 0:
+        print("  PATCHED: Asar integrity validation disabled")
+    else:
+        print(f"  WARNING: Could not disable fuse: {fuse_result.stderr[:200]}")
+
+    # Step 11: Re-sign
+    print("\n11. Signing app...")
     subprocess.run(["xattr", "-cr", str(target_app)], capture_output=True)
     subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", str(target_app)],
