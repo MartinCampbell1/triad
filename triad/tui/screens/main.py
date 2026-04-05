@@ -65,13 +65,16 @@ class MainScreen(Screen):
         self.app.push_screen(RoleSelectScreen(), callback=on_roles_selected)
 
     def action_delegate(self) -> None:
-        self.notify("Delegate mode — add tasks (coming soon)")
+        from triad.tui.screens.delegate import DelegateScreen
+        self.app.push_screen(DelegateScreen())
 
     def action_history(self) -> None:
-        self.notify("Session browser — coming soon")
+        from triad.tui.screens.sessions import SessionsScreen
+        self.app.push_screen(SessionsScreen())
 
     def action_accounts(self) -> None:
-        self.notify("Account status — coming soon")
+        from triad.tui.screens.accounts import AccountsScreen
+        self.app.push_screen(AccountsScreen())
 
     def action_quit(self) -> None:
         self.app.exit()
