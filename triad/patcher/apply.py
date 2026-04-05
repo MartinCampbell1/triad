@@ -1,6 +1,8 @@
 """Apply patches to extracted Codex Desktop App source."""
 from __future__ import annotations
 
+import json
+import plistlib
 import re
 import shutil
 import subprocess
@@ -123,6 +125,207 @@ def inject_proxy_launcher(source_dir: Path) -> bool:
     new_content = BOOTSTRAP_INJECTION + "\n" + content
     bootstrap_path.write_text(new_content, encoding="utf-8")
     print("  PATCHED: Proxy auto-start injected into bootstrap.js")
+    return True
+
+
+def inject_orchestrator_widget(source_dir: Path) -> bool:
+    """Inject orchestrator rotation widget into the webview index.html."""
+    index_path = source_dir / "webview" / "index.html"
+    if not index_path.exists():
+        return False
+
+    content = index_path.read_text(encoding="utf-8")
+    if "triad-orchestrator-widget" in content:
+        return True  # Already injected
+
+    widget_html = '''
+<!-- TRIAD ORCHESTRATOR WIDGET -->
+<style>
+  #triad-orchestrator-widget {
+    position: fixed;
+    bottom: 60px;
+    right: 16px;
+    z-index: 99999;
+    display: flex;
+    gap: 4px;
+    background: var(--bg-secondary, #1e1e1e);
+    border: 1px solid var(--border-primary, #333);
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: opacity 0.2s;
+    opacity: 0.7;
+  }
+  #triad-orchestrator-widget:hover {
+    opacity: 1;
+  }
+  .triad-provider-btn {
+    padding: 4px 10px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-secondary, #999);
+    background: transparent;
+    transition: all 0.15s;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .triad-provider-btn:hover {
+    background: var(--bg-tertiary, #2a2a2a);
+    color: var(--text-primary, #fff);
+  }
+  .triad-provider-btn.active {
+    background: var(--accent-primary, #0066ff);
+    color: white;
+    border-color: var(--accent-primary, #0066ff);
+  }
+  .triad-mode-label {
+    color: var(--text-tertiary, #666);
+    padding: 4px 4px;
+    font-size: 11px;
+    align-self: center;
+  }
+</style>
+<div id="triad-orchestrator-widget">
+  <span class="triad-mode-label">Triad</span>
+  <button class="triad-provider-btn active" data-provider="claude" onclick="triadSetProvider('claude')">Claude</button>
+  <button class="triad-provider-btn" data-provider="codex" onclick="triadSetProvider('codex')">Codex</button>
+  <button class="triad-provider-btn" data-provider="gemini" onclick="triadSetProvider('gemini')">Gemini</button>
+</div>
+<script>
+  async function triadSetProvider(provider) {
+    try {
+      await fetch('http://127.0.0.1:9377/api/orchestrator', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({provider: provider})
+      });
+      document.querySelectorAll('.triad-provider-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.provider === provider);
+      });
+    } catch(e) {
+      console.error('[triad] Failed to switch provider:', e);
+    }
+  }
+  // Load current provider on startup
+  (async function() {
+    try {
+      const r = await fetch('http://127.0.0.1:9377/api/orchestrator');
+      const d = await r.json();
+      document.querySelectorAll('.triad-provider-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.provider === d.active);
+      });
+    } catch(e) {
+      // Proxy not ready yet, retry in 2s
+      setTimeout(arguments.callee, 2000);
+    }
+  })();
+</script>
+<!-- END TRIAD WIDGET -->
+'''
+
+    # Insert before closing </body>
+    content = content.replace("</body>", widget_html + "\n</body>")
+    index_path.write_text(content, encoding="utf-8")
+    print("  PATCHED: Orchestrator rotation widget injected")
+    return True
+
+
+def build_standalone_app(
+    source_app: Path = Path("/Applications/Codex.app"),
+    target_app: Path = Path("/Applications/Triad.app"),
+    work_dir: Path = Path.home() / "codex-fork",
+) -> bool:
+    """Build standalone Triad.app from Codex.app."""
+    print("=== Building Triad.app ===\n")
+
+    # Step 1: Copy entire app bundle
+    if target_app.exists():
+        print(f"Removing existing {target_app}...")
+        shutil.rmtree(target_app)
+
+    print(f"1. Copying {source_app} -> {target_app}...")
+    shutil.copytree(source_app, target_app, symlinks=True)
+
+    # Step 2: Rename in Info.plist
+    print("2. Updating Info.plist...")
+    plist_path = target_app / "Contents" / "Info.plist"
+    with open(plist_path, "rb") as f:
+        plist = plistlib.load(f)
+
+    plist["CFBundleDisplayName"] = "Triad"
+    plist["CFBundleName"] = "Triad"
+    plist["CFBundleIdentifier"] = "com.triad.orchestrator"
+    plist["CFBundleExecutable"] = "Codex"  # Keep executable name (it's the Electron binary)
+
+    # Remove integrity check
+    if "ElectronAsarIntegrity" in plist:
+        del plist["ElectronAsarIntegrity"]
+
+    # Remove Sparkle updater
+    plist.pop("SUFeedURL", None)
+    plist.pop("SUPublicEDKey", None)
+
+    with open(plist_path, "wb") as f:
+        plistlib.dump(plist, f)
+
+    # Step 3: Extract asar from the COPY
+    asar_path = target_app / "Contents" / "Resources" / "app.asar"
+    extract_dir = work_dir / "triad-source"
+
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir)
+
+    print("3. Extracting asar from copy...")
+    extract_asar(asar_path, extract_dir)
+
+    # Step 4: Apply all string patches
+    print("\n4. Applying patches...")
+    applied = 0
+    for patch in PATCHES:
+        if apply_string_patch(extract_dir, patch):
+            applied += 1
+
+    # Step 5: Patch CSP
+    print("\n5. Patching CSP...")
+    patch_csp(extract_dir)
+
+    # Step 6: Inject proxy launcher
+    print("\n6. Injecting proxy auto-start...")
+    inject_proxy_launcher(extract_dir)
+
+    # Step 7: Inject orchestrator rotation widget into webview
+    print("\n7. Injecting orchestrator rotation UI...")
+    inject_orchestrator_widget(extract_dir)
+
+    # Step 8: Update package.json name
+    print("\n8. Updating package.json...")
+    pkg_path = extract_dir / "package.json"
+    if pkg_path.exists():
+        pkg = json.loads(pkg_path.read_text())
+        pkg["productName"] = "Triad"
+        pkg["name"] = "triad-orchestrator"
+        pkg["codexSparkleFeedUrl"] = ""
+        pkg["codexSparklePublicKey"] = ""
+        pkg_path.write_text(json.dumps(pkg, indent=2))
+
+    # Step 9: Repack asar
+    print("\n9. Repacking asar...")
+    repack_asar(extract_dir, asar_path)
+
+    # Step 10: Re-sign
+    print("\n10. Signing app...")
+    subprocess.run(["xattr", "-cr", str(target_app)], capture_output=True)
+    subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", str(target_app)],
+        capture_output=True,
+    )
+
+    print(f"\n=== Triad.app built at {target_app} ===")
+    print(f"Patches applied: {applied}")
+    print(f"\nTo launch: open {target_app}")
     return True
 
 

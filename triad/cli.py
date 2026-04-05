@@ -167,6 +167,20 @@ def patch(
 
 
 @app.command()
+def build(
+    source: str = typer.Option("/Applications/Codex.app", "--source", help="Source Codex.app"),
+    target: str = typer.Option("/Applications/Triad.app", "--target", help="Target Triad.app"),
+):
+    """Build standalone Triad.app from Codex.app."""
+    from triad.patcher.apply import build_standalone_app
+    build_standalone_app(
+        source_app=Path(source),
+        target_app=Path(target),
+        work_dir=Path.home() / "codex-fork",
+    )
+
+
+@app.command()
 def unpatch(
     app_path: str = typer.Option("/Applications/Codex.app", "--app", help="Path to Codex.app"),
     work_dir: str = typer.Option(str(Path.home() / "codex-fork"), "--workdir", help="Working directory"),

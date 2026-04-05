@@ -74,3 +74,39 @@ def test_inject_proxy_launcher(tmp_path: Path):
     finally:
         if not launcher_existed:
             launcher_path.unlink(missing_ok=True)
+
+
+def test_inject_orchestrator_widget(tmp_path: Path):
+    from triad.patcher.apply import inject_orchestrator_widget
+
+    webview_dir = tmp_path / "webview"
+    webview_dir.mkdir()
+    index = webview_dir / "index.html"
+    index.write_text("<html><body><div id='root'></div></body></html>")
+
+    result = inject_orchestrator_widget(tmp_path)
+    assert result is True
+
+    content = index.read_text()
+    assert "triad-orchestrator-widget" in content
+    assert "triadSetProvider" in content
+    assert "Claude" in content
+    assert "Codex" in content
+    assert "Gemini" in content
+
+
+def test_inject_orchestrator_widget_idempotent(tmp_path: Path):
+    from triad.patcher.apply import inject_orchestrator_widget
+
+    webview_dir = tmp_path / "webview"
+    webview_dir.mkdir()
+    index = webview_dir / "index.html"
+    index.write_text("<html><body><div id='root'></div></body></html>")
+
+    inject_orchestrator_widget(tmp_path)
+    first_content = index.read_text()
+
+    inject_orchestrator_widget(tmp_path)
+    second_content = index.read_text()
+
+    assert first_content == second_content  # No double injection
