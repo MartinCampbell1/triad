@@ -52,7 +52,17 @@ class MainScreen(Screen):
             subprocess.run(["claude"])
 
     def action_critic(self) -> None:
-        self.notify("Critic mode — select roles first (coming soon)")
+        from triad.tui.screens.critic import CriticScreen, RoleSelectScreen
+
+        def on_roles_selected(roles: dict) -> None:
+            self.app.push_screen(
+                CriticScreen(
+                    writer_provider=roles["writer"],
+                    critic_provider=roles["critic"],
+                )
+            )
+
+        self.app.push_screen(RoleSelectScreen(), callback=on_roles_selected)
 
     def action_delegate(self) -> None:
         self.notify("Delegate mode — add tasks (coming soon)")
