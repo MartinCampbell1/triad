@@ -49,6 +49,7 @@ class CriticConfig:
     critic_provider: str
     max_rounds: int = 5
     workdir: Path = field(default_factory=lambda: Path.cwd())
+    use_worktree: bool = True
 
 
 @dataclass
@@ -70,6 +71,7 @@ class CriticMode:
         critic_profile: Profile,
         ledger: Ledger,
         blackboard: Blackboard,
+        worktree_manager: "WorktreeManager | None" = None,
     ):
         self.config = config
         self.writer_adapter = writer_adapter
@@ -78,10 +80,12 @@ class CriticMode:
         self.critic_profile = critic_profile
         self.ledger = ledger
         self.blackboard = blackboard
+        self.worktree_manager = worktree_manager
         self.state = ModeState.IDLE
         self.session_id: str | None = None
         self._writer_session_id: str | None = None
         self._rounds: list[RoundResult] = []
+        self._session_workdir: Path | None = None
 
     async def initialize(self) -> str:
         self.session_id = await self.ledger.create_session(
@@ -94,6 +98,20 @@ class CriticMode:
             }),
         )
         self.state = ModeState.RUNNING
+
+        # Create session-scoped worktree for isolation
+        if self.config.use_worktree and self.worktree_manager:
+            try:
+                self._session_workdir = self.worktree_manager.create(
+                    repo_path=self.config.workdir,
+                    name=f"critic-{self.session_id}",
+                )
+            except Exception:
+                self._session_workdir = None
+
+        if self._session_workdir is None:
+            self._session_workdir = self.config.workdir
+
         return self.session_id
 
     async def run_round(self, user_feedback: str | None = None) -> RoundResult:
@@ -124,7 +142,7 @@ class CriticMode:
         writer_result = await self.writer_adapter.execute(
             profile=self.writer_profile,
             prompt=writer_prompt,
-            workdir=self.config.workdir,
+            workdir=self._session_workdir,
             session_id=self._writer_session_id,
         )
         writer_output = writer_result.stdout
@@ -136,7 +154,7 @@ class CriticMode:
 
         # Capture actual repo changes instead of relying on stdout
         from triad.core.repo_artifacts import capture_repo_artifacts
-        repo_state = capture_repo_artifacts(self.config.workdir)
+        repo_state = capture_repo_artifacts(self._session_workdir)
 
         critic_prompt = _CRITIC_PROMPT.format(
             task=self.blackboard.task,
@@ -152,7 +170,7 @@ class CriticMode:
         critic_result = await self.critic_adapter.execute(
             profile=self.critic_profile,
             prompt=critic_prompt,
-            workdir=self.config.workdir,
+            workdir=self._session_workdir,
         )
         critic_output = critic_result.stdout
         await self.ledger.log_event(
@@ -202,6 +220,11 @@ class CriticMode:
             self.config.critic_provider,
             self.config.writer_provider,
         )
+
+    async def close(self) -> None:
+        """Finalize session — log close event."""
+        if self.session_id:
+            await self.ledger.log_event(self.session_id, "session.closed")
 
     @staticmethod
     def parse_critic_output(raw: str) -> CriticReport:

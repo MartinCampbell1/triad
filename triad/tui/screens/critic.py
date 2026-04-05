@@ -211,6 +211,9 @@ class CriticScreen(Screen):
                 workdir=Path.cwd(),
             )
 
+            from triad.core.worktrees import WorktreeManager
+            worktree_mgr = WorktreeManager(base_dir=config_obj.worktrees_dir)
+
             self._critic_mode = CriticMode(
                 config=config,
                 writer_adapter=writer_adapter,
@@ -219,6 +222,7 @@ class CriticScreen(Screen):
                 critic_profile=critic_profile,
                 ledger=ledger,
                 blackboard=blackboard,
+                worktree_manager=worktree_mgr,
             )
 
             session_id = await self._critic_mode.initialize()
