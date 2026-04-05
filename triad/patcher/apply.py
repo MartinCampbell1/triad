@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from triad.patcher.patches import PATCHES, CSP_ADDITIONS, StringPatch
+from triad.patcher.patches import PATCHES, CSP_ADDITIONS, BOOTSTRAP_INJECTION, StringPatch
 
 
 def backup_asar(asar_path: Path, backup_dir: Path) -> Path:
@@ -96,6 +96,36 @@ def patch_info_plist(app_path: Path) -> bool:
     return True
 
 
+def inject_proxy_launcher(source_dir: Path) -> bool:
+    """Copy launcher.js and inject require into bootstrap.js."""
+    # Copy launcher
+    launcher_src = Path(__file__).parent / "launcher.js"
+    launcher_dst = source_dir / ".vite" / "build" / "triad-launcher.js"
+
+    if not launcher_src.exists():
+        print("  SKIP: launcher.js not found in patcher package")
+        return False
+
+    shutil.copy2(launcher_src, launcher_dst)
+
+    # Inject require into bootstrap.js
+    bootstrap_path = source_dir / ".vite" / "build" / "bootstrap.js"
+    if not bootstrap_path.exists():
+        print("  SKIP: bootstrap.js not found")
+        return False
+
+    content = bootstrap_path.read_text(encoding="utf-8")
+    if "triad-launcher" in content:
+        print("  SKIP: launcher already injected")
+        return True
+
+    # Prepend injection before existing code
+    new_content = BOOTSTRAP_INJECTION + "\n" + content
+    bootstrap_path.write_text(new_content, encoding="utf-8")
+    print("  PATCHED: Proxy auto-start injected into bootstrap.js")
+    return True
+
+
 def apply_all_patches(
     app_path: Path = Path("/Applications/Codex.app"),
     work_dir: Path = Path.home() / "codex-fork",
@@ -133,17 +163,22 @@ def apply_all_patches(
     if patch_csp(source_dir):
         applied += 1
 
-    # Step 5: Patch Info.plist
-    print("\n5. Patching Info.plist...")
+    # Step 5: Inject proxy launcher
+    print("\n5. Injecting proxy auto-start...")
+    if inject_proxy_launcher(source_dir):
+        applied += 1
+
+    # Step 6: Patch Info.plist
+    print("\n6. Patching Info.plist...")
     if patch_info_plist(app_path):
         applied += 1
 
-    # Step 6: Repack
-    print("\n6. Repacking asar...")
+    # Step 7: Repack
+    print("\n7. Repacking asar...")
     repack_asar(source_dir, asar_path)
 
-    # Step 7: Re-sign (remove quarantine)
-    print("\n7. Fixing code signature...")
+    # Step 8: Re-sign (remove quarantine)
+    print("\n8. Fixing code signature...")
     subprocess.run(["xattr", "-cr", str(app_path)], capture_output=True)
     subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", str(app_path)],

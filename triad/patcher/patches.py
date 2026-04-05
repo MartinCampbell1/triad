@@ -59,3 +59,15 @@ PATCHES: list[StringPatch] = [
 
 # CSP patch for index.html — needs special handling (not simple string replace)
 CSP_ADDITIONS = "http://127.0.0.1:9377 ws://127.0.0.1:9377"
+
+BOOTSTRAP_INJECTION = '''
+// === TRIAD PROXY AUTO-START ===
+try {
+  const { startTriadProxy } = require('./triad-launcher.js');
+  startTriadProxy();
+  console.log('[triad] Proxy auto-start initiated');
+} catch (e) {
+  console.error('[triad] Failed to start proxy:', e.message);
+}
+// === END TRIAD ===
+'''

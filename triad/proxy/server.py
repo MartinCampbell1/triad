@@ -68,6 +68,12 @@ async def set_orchestrator(request: Request):
     return {"active": _active_orchestrator}
 
 
+@app.post("/api/telemetry/noop")
+async def telemetry_noop():
+    """Silently accept and discard telemetry from patched Codex app."""
+    return {"status": "ok"}
+
+
 @app.post("/api/responses")
 async def create_response(request: Request):
     """Main endpoint — accepts OpenAI Responses API format, routes to active provider."""
@@ -173,3 +179,15 @@ async def _stream_response(adapter, profile, prompt, workdir, original_body):
     # Update account manager
     mgr = get_account_manager()
     mgr.mark_success(adapter.provider, profile.name)
+
+
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def catch_all(path: str, request: Request):
+    """Catch-all for unknown API routes — log and return empty success."""
+    body = None
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    print(f"[proxy] unhandled: {request.method} /api/{path}")
+    return {"status": "ok", "unhandled": True}
