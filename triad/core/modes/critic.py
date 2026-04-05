@@ -25,10 +25,19 @@ _CRITIC_PROMPT = """You are a thorough code reviewer. Be specific and actionable
 ## Original Task
 {task}
 
-## Code Written
-{writer_output}
+## Git Status
+{git_status}
 
-Review the code. Output your review as JSON:
+## Changes (git diff --stat)
+{diff_stat}
+
+## Full Diff
+{diff_patch}
+
+## Writer Summary
+{writer_summary}
+
+Review the actual code changes shown in the diff above. Output your review as JSON:
 {{"status": "needs_work" or "lgtm", "issues": [{{"id": "...", "severity": "critical|high|medium|low", "kind": "security|correctness|performance|style", "file": "...", "summary": "...", "suggested_fix": "..."}}], "lgtm": true or false}}
 
 If no issues, set lgtm to true and issues to []."""
@@ -125,9 +134,16 @@ class CriticMode:
             content=writer_output[:2000],
         )
 
+        # Capture actual repo changes instead of relying on stdout
+        from triad.core.repo_artifacts import capture_repo_artifacts
+        repo_state = capture_repo_artifacts(self.config.workdir)
+
         critic_prompt = _CRITIC_PROMPT.format(
             task=self.blackboard.task,
-            writer_output=writer_output[:8000],
+            git_status=repo_state["status"],
+            diff_stat=repo_state["diff_stat"],
+            diff_patch=repo_state["diff_patch"][:12000],
+            writer_summary=writer_output[:2000],
         )
         await self.ledger.log_event(
             self.session_id, "provider.started",
