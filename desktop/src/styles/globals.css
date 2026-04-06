@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  #root {
+    isolation: isolate;
+  }
+}

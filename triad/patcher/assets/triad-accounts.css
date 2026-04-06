@@ -1,0 +1,366 @@
+:root {
+  --triad-acc-bg: var(--color-token-side-bar-background, #17181c);
+  --triad-acc-surface: color-mix(in lab, var(--triad-acc-bg) 94%, white);
+  --triad-acc-surface-strong: color-mix(in lab, var(--triad-acc-bg) 90%, white);
+  --triad-acc-fg: var(--color-token-foreground, #f4f4f5);
+  --triad-acc-muted: color-mix(in lab, var(--triad-acc-fg) 58%, transparent);
+  --triad-acc-border: color-mix(in lab, var(--triad-acc-fg) 12%, transparent);
+  --triad-acc-border-strong: color-mix(in lab, var(--triad-acc-fg) 18%, transparent);
+  --triad-acc-success: #7dd3a8;
+  --triad-acc-success-bg: rgba(125, 211, 168, 0.1);
+  --triad-acc-warning: #f7c97d;
+  --triad-acc-warning-bg: rgba(247, 201, 125, 0.1);
+  --triad-acc-info: #8ec5ff;
+  --triad-acc-info-bg: rgba(142, 197, 255, 0.12);
+  --triad-acc-error: #ff9a9a;
+  --triad-acc-error-bg: rgba(255, 154, 154, 0.12);
+}
+
+.triad-accounts-shell {
+  min-height: 100%;
+  padding: 18px 22px 28px;
+  color: var(--triad-acc-fg);
+}
+
+.triad-accounts-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.triad-accounts-header {
+  border: 1px solid var(--triad-acc-border);
+  border-radius: 18px;
+  background: var(--triad-acc-surface);
+  padding: 20px;
+}
+
+.triad-accounts-header__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.triad-accounts-header__copy {
+  max-width: 760px;
+}
+
+.triad-accounts-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.triad-accounts-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--triad-acc-border);
+  border-radius: 999px;
+  background: color-mix(in lab, var(--triad-acc-surface) 88%, white);
+  padding: 6px 10px;
+  color: var(--triad-acc-muted);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.triad-accounts-kicker__icon {
+  width: 14px;
+  height: 14px;
+}
+
+.triad-accounts-title {
+  margin: 12px 0 0;
+  font-size: 28px;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--triad-acc-fg);
+}
+
+.triad-accounts-subtitle {
+  margin: 10px 0 0;
+  max-width: 760px;
+  color: var(--triad-acc-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.triad-accounts-notice {
+  margin-top: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--triad-acc-border);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.triad-accounts-notice--info {
+  border-color: rgba(142, 197, 255, 0.24);
+  background: var(--triad-acc-info-bg);
+  color: var(--triad-acc-info);
+}
+
+.triad-accounts-notice--error {
+  border-color: rgba(255, 154, 154, 0.24);
+  background: var(--triad-acc-error-bg);
+  color: var(--triad-acc-error);
+}
+
+.triad-accounts-section-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.triad-accounts-stat {
+  min-width: 120px;
+  border: 1px solid var(--triad-acc-border);
+  border-radius: 14px;
+  background: color-mix(in lab, var(--triad-acc-surface) 84%, white);
+  padding: 12px 14px;
+}
+
+.triad-accounts-stat--blue {
+  border-color: rgba(142, 197, 255, 0.18);
+  background: rgba(142, 197, 255, 0.08);
+}
+
+.triad-accounts-stat--green {
+  border-color: rgba(125, 211, 168, 0.18);
+  background: rgba(125, 211, 168, 0.08);
+}
+
+.triad-accounts-stat__label {
+  color: var(--triad-acc-muted);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.triad-accounts-stat__value {
+  margin-top: 8px;
+  color: var(--triad-acc-fg);
+  font-size: 19px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.triad-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border: 1px solid var(--triad-acc-border);
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--triad-acc-muted);
+  background: color-mix(in lab, var(--triad-acc-surface) 90%, white);
+}
+
+.triad-pill--success {
+  border-color: rgba(125, 211, 168, 0.22);
+  background: var(--triad-acc-success-bg);
+  color: var(--triad-acc-success);
+}
+
+.triad-pill--warning {
+  border-color: rgba(247, 201, 125, 0.22);
+  background: var(--triad-acc-warning-bg);
+  color: var(--triad-acc-warning);
+}
+
+.triad-pill--muted,
+.triad-pill--neutral {
+  color: var(--triad-acc-muted);
+}
+
+.triad-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--triad-acc-border-strong);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+.triad-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.triad-button--primary {
+  background: #f5f7fa;
+  color: #0f1115;
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+.triad-button--primary:hover:not(:disabled) {
+  background: #ffffff;
+}
+
+.triad-button--secondary {
+  background: color-mix(in lab, var(--triad-acc-surface) 84%, white);
+  color: var(--triad-acc-fg);
+}
+
+.triad-button--secondary:hover:not(:disabled) {
+  background: color-mix(in lab, var(--triad-acc-surface-strong) 88%, white);
+}
+
+.triad-accounts-card-grid {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 1040px) {
+  .triad-accounts-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.triad-provider-card {
+  border: 1px solid var(--triad-acc-border);
+  border-radius: 18px;
+  background: var(--triad-acc-surface);
+  padding: 18px;
+}
+
+.triad-provider-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.triad-provider-card__identity {
+  min-width: 0;
+}
+
+.triad-provider-card__eyebrow {
+  color: var(--triad-acc-muted);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.triad-provider-card__title {
+  margin: 10px 0 0;
+  color: var(--triad-acc-fg);
+  font-size: 19px;
+  line-height: 1.15;
+  font-weight: 600;
+}
+
+.triad-provider-card__command {
+  margin-top: 8px;
+  color: var(--triad-acc-muted);
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.triad-provider-card__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.triad-provider-card__profiles {
+  overflow: hidden;
+  margin-top: 16px;
+  border: 1px solid var(--triad-acc-border);
+  border-radius: 14px;
+  background: color-mix(in lab, var(--triad-acc-surface) 84%, white);
+}
+
+.triad-provider-card__empty {
+  padding: 16px;
+  color: var(--triad-acc-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.triad-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--triad-acc-border);
+}
+
+.triad-profile-row:first-child {
+  border-top: 0;
+}
+
+.triad-profile-row__meta {
+  min-width: 0;
+}
+
+.triad-profile-row__name {
+  color: var(--triad-acc-fg);
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 500;
+}
+
+.triad-profile-row__summary {
+  margin-top: 4px;
+  color: var(--triad-acc-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.triad-profile-row__status {
+  flex-shrink: 0;
+}
+
+.triad-accounts-fade-in {
+  animation: triad-accounts-fade 180ms ease-out both;
+}
+
+@keyframes triad-accounts-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .triad-accounts-shell {
+    padding: 14px 16px 22px;
+  }
+
+  .triad-accounts-header__top,
+  .triad-provider-card__top {
+    flex-direction: column;
+  }
+
+  .triad-accounts-header__actions {
+    width: 100%;
+  }
+}

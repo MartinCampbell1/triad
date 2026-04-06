@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from triad.core.context.blackboard import Blackboard
+from triad.core.execution_policy import ExecutionPolicy
 from triad.core.models import CriticIssue, CriticReport, IssueSeverity, Profile
 from triad.core.modes.base import ModeState
 from triad.core.providers.base import ProviderAdapter
@@ -101,16 +102,19 @@ class CriticMode:
         self.state = ModeState.RUNNING
 
         # Create session-scoped worktree for isolation
-        if self.config.use_worktree and self.worktree_manager:
+        if self.config.use_worktree:
+            if self.worktree_manager is None:
+                await self.ledger.update_session_status(self.session_id, "failed")
+                raise RuntimeError("CriticMode requires WorktreeManager when use_worktree=True")
             try:
                 self._session_workdir = self.worktree_manager.create(
                     repo_path=self.config.workdir,
                     name=f"critic-{self.session_id}",
                 )
-            except Exception:
-                self._session_workdir = None
-
-        if self._session_workdir is None:
+            except Exception as exc:
+                await self.ledger.update_session_status(self.session_id, "failed")
+                raise RuntimeError("CriticMode worktree creation failed") from exc
+        else:
             self._session_workdir = self.config.workdir
 
         return self.session_id
@@ -144,6 +148,7 @@ class CriticMode:
             profile=self.writer_profile,
             prompt=writer_prompt,
             workdir=self._session_workdir,
+            policy=ExecutionPolicy.writer(),
         )
         # Track writer rate-limit state
         if writer_result.rate_limited:
@@ -178,6 +183,7 @@ class CriticMode:
             profile=self.critic_profile,
             prompt=critic_prompt,
             workdir=self._session_workdir,
+            policy=ExecutionPolicy.critic(),
         )
         # Track critic rate-limit state
         if critic_result.rate_limited:
@@ -239,6 +245,15 @@ class CriticMode:
         """Finalize session — log close event."""
         if self.session_id:
             await self.ledger.log_event(self.session_id, "session.closed")
+        if (
+            self._session_workdir
+            and self.worktree_manager
+            and self._session_workdir != self.config.workdir
+        ):
+            try:
+                self.worktree_manager.remove(self._session_workdir)
+            except Exception:
+                pass
 
     @staticmethod
     def parse_critic_output(raw: str) -> CriticReport:

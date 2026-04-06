@@ -31,7 +31,7 @@ class MainScreen(Screen):
         yield Button("Delegate — Parallel Tasks", id="delegate", variant="success")
         yield Label("")
         yield Button("Session History", id="history")
-        yield Button("Account Status", id="accounts")
+        yield Button("Accounts", id="accounts")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

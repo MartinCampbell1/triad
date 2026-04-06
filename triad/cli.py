@@ -5,6 +5,8 @@ from pathlib import Path
 
 import typer
 
+from triad.core.config import get_default_config_path
+
 app = typer.Typer(
     name="triad",
     help="Local orchestration control-plane for AI coding CLIs",
@@ -28,11 +30,10 @@ def main(
 @app.command()
 def accounts():
     """Show account status."""
-    from pathlib import Path
     from triad.core.accounts.manager import AccountManager
     from triad.core.config import load_config
 
-    config = load_config(Path.home() / ".triad" / "config.yaml")
+    config = load_config(get_default_config_path())
     profiles_dir = config.profiles_dir
     if not profiles_dir.exists():
         typer.echo(f"No profiles directory found at {profiles_dir}")
@@ -60,7 +61,7 @@ def sessions():
     from triad.core.storage.ledger import Ledger
 
     async def _list():
-        db_path = Path.home() / ".triad" / "triad.db"
+        db_path = get_default_config_path().parent / "triad.db"
         if not db_path.exists():
             typer.echo("No sessions found. (Database not yet created)")
             return
@@ -90,7 +91,7 @@ def export(
     from triad.core.export import export_session_jsonl, export_session_markdown
 
     async def _export():
-        db_path = Path.home() / ".triad" / "triad.db"
+        db_path = get_default_config_path().parent / "triad.db"
         if not db_path.exists():
             typer.echo("No database found.")
             raise typer.Exit(1)
@@ -104,7 +105,7 @@ def export(
             await ledger.close()
             raise typer.Exit(1)
 
-        exports_dir = Path.home() / ".triad" / "exports"
+        exports_dir = get_default_config_path().parent / "exports"
         if format == "jsonl":
             out_path = Path(output) if output else exports_dir / f"{session_id}.jsonl"
             result = await export_session_jsonl(ledger, session_id, out_path)
@@ -137,7 +138,7 @@ def worktrees(action: str = typer.Argument("list", help="Action: list or prune")
     from triad.core.config import load_config
     from triad.core.worktrees import WorktreeManager
 
-    config = load_config(Path.home() / ".triad" / "config.yaml")
+    config = load_config(get_default_config_path())
     mgr = WorktreeManager(base_dir=config.worktrees_dir)
 
     if action == "prune":

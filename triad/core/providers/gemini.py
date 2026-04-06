@@ -14,6 +14,12 @@ class GeminiAdapter(ProviderAdapter):
     def headless_command(self, prompt: str, **kwargs) -> list[str]:
         return ["gemini", "-p", prompt]
 
+    def profile_is_valid(self, profile_dir) -> bool:
+        return (
+            (profile_dir / "home" / ".config" / "gemini").exists()
+            or (profile_dir / "home" / ".gemini").exists()
+        )
+
     def build_env(self, profile: Profile, base_env: Mapping[str, str] | None = None) -> dict[str, str]:
         env = build_runtime_base_env(base_env)
         home = Path(profile.path) / "home"

@@ -60,6 +60,13 @@ class ProviderAdapter(ABC):
     def interactive_command(self) -> list[str]:
         raise NotImplementedError(f"{self.provider} does not support interactive mode")
 
+    def profile_is_valid(self, profile_dir: Path) -> bool:
+        return False
+
+    def parse_stream_line(self, line: str) -> list[StreamEvent]:
+        """Translate one stdout line into zero or more stream events."""
+        return [StreamEvent(kind="text", text=line)]
+
     async def execute(
         self,
         profile: Profile,
@@ -136,7 +143,8 @@ class ProviderAdapter(ABC):
                         yield decoded
 
             async for line in _read_lines():
-                yield StreamEvent(kind="text", text=line)
+                for event in self.parse_stream_line(line):
+                    yield event
 
         except asyncio.CancelledError:
             proc.kill()

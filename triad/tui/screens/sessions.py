@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
+from triad.core.config import get_default_triad_home
 from triad.core.storage.ledger import Ledger
 
 
@@ -31,7 +31,7 @@ class SessionsScreen(Screen):
 
     async def _load_sessions(self) -> None:
         table = self.query_one("#sessions-table", DataTable)
-        db_path = Path.home() / ".triad" / "triad.db"
+        db_path = get_default_triad_home() / "triad.db"
         if not db_path.exists():
             table.add_row("—", "—", "No sessions yet", "—", "—")
             return

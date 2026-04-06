@@ -8,7 +8,47 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from triad.patcher.accounts_ui import inject_accounts_ui
 from triad.patcher.patches import PATCHES, CSP_ADDITIONS, BOOTSTRAP_INJECTION, StringPatch
+
+TRIAD_APP_NAME = "Triad"
+TRIAD_BUNDLE_ID = "com.triad.orchestrator"
+TRIAD_HELPER_BUNDLE_ID = f"{TRIAD_BUNDLE_ID}.helper"
+
+HELPER_RENAMES: tuple[dict[str, str], ...] = (
+    {
+        "src_app": "Codex Helper.app",
+        "dst_app": "Triad Helper.app",
+        "src_exec": "Codex Helper",
+        "dst_exec": "Triad Helper",
+        "bundle_name": TRIAD_APP_NAME,
+        "display_name": "Triad Helper",
+    },
+    {
+        "src_app": "Codex Helper (GPU).app",
+        "dst_app": "Triad Helper (GPU).app",
+        "src_exec": "Codex Helper (GPU)",
+        "dst_exec": "Triad Helper (GPU)",
+        "bundle_name": "Triad Helper (GPU)",
+        "display_name": "Triad Helper (GPU)",
+    },
+    {
+        "src_app": "Codex Helper (Plugin).app",
+        "dst_app": "Triad Helper (Plugin).app",
+        "src_exec": "Codex Helper (Plugin)",
+        "dst_exec": "Triad Helper (Plugin)",
+        "bundle_name": "Triad Helper (Plugin)",
+        "display_name": "Triad Helper (Plugin)",
+    },
+    {
+        "src_app": "Codex Helper (Renderer).app",
+        "dst_app": "Triad Helper (Renderer).app",
+        "src_exec": "Codex Helper (Renderer)",
+        "dst_exec": "Triad Helper (Renderer)",
+        "bundle_name": "Triad Helper (Renderer)",
+        "display_name": "Triad Helper (Renderer)",
+    },
+)
 
 
 def backup_asar(asar_path: Path, backup_dir: Path) -> Path:
@@ -57,18 +97,39 @@ def patch_csp(source_dir: Path) -> bool:
 
     content = index_path.read_text(encoding="utf-8")
 
-    # Add localhost to connect-src if CSP meta tag exists
-    if "connect-src" in content:
-        content = content.replace(
-            "connect-src 'self'",
-            f"connect-src 'self' {CSP_ADDITIONS}",
-        )
-        index_path.write_text(content, encoding="utf-8")
-        print("  PATCHED: CSP — added localhost to connect-src")
-        return True
-    else:
+    if "connect-src" not in content:
         print("  SKIP: No connect-src found in CSP")
         return False
+
+    updated = re.sub(
+        r"connect-src\s+(?:'self'|&#39;self&#39;)",
+        lambda m: f"{m.group(0)} {CSP_ADDITIONS}",
+        content,
+        count=1,
+    )
+    if updated == content or CSP_ADDITIONS in content:
+        print("  SKIP: CSP already patched or connect-src marker mismatch")
+        return False
+
+    index_path.write_text(updated, encoding="utf-8")
+    print("  PATCHED: CSP — added localhost to connect-src")
+    return True
+
+
+def rewrite_package_metadata(pkg: dict) -> dict:
+    """Normalize packaged metadata away from Codex/OpenAI branding."""
+    updated = dict(pkg)
+    updated["productName"] = "Triad"
+    updated["name"] = "triad-orchestrator"
+    updated["author"] = "Triad"
+    updated["description"] = "Triad"
+    # Keep a valid upstream build flavor so Electron runtime does not fall back
+    # to "(Dev)" userData paths when it sees an unknown flavor value.
+    updated["codexBuildFlavor"] = "prod"
+    updated["codexBuildNumber"] = "0"
+    updated["codexSparkleFeedUrl"] = ""
+    updated["codexSparklePublicKey"] = ""
+    return updated
 
 
 def repack_asar(source_dir: Path, asar_path: Path) -> None:
@@ -78,6 +139,87 @@ def repack_asar(source_dir: Path, asar_path: Path) -> None:
         check=True,
         capture_output=True,
     )
+
+
+def _rename_if_exists(source: Path, target: Path) -> bool:
+    """Rename one path if it exists and differs from the target."""
+    if source == target or not source.exists():
+        return False
+    source.rename(target)
+    return True
+
+
+def _write_plist(plist_path: Path, plist: dict) -> None:
+    with open(plist_path, "wb") as handle:
+        plistlib.dump(plist, handle)
+
+
+def rename_desktop_identity(app_path: Path) -> bool:
+    """Rename the standalone app bundle and helper metadata away from Codex."""
+    changed = False
+
+    main_exec_src = app_path / "Contents" / "MacOS" / "Codex"
+    main_exec_dst = app_path / "Contents" / "MacOS" / TRIAD_APP_NAME
+    if _rename_if_exists(main_exec_src, main_exec_dst):
+        changed = True
+
+    plist_path = app_path / "Contents" / "Info.plist"
+    if plist_path.exists():
+        with open(plist_path, "rb") as handle:
+            plist = plistlib.load(handle)
+
+        plist["CFBundleDisplayName"] = TRIAD_APP_NAME
+        plist["CFBundleName"] = TRIAD_APP_NAME
+        plist["CFBundleIdentifier"] = TRIAD_BUNDLE_ID
+        plist["CFBundleExecutable"] = TRIAD_APP_NAME
+
+        url_types = plist.get("CFBundleURLTypes")
+        if isinstance(url_types, list):
+            for item in url_types:
+                if not isinstance(item, dict):
+                    continue
+                item["CFBundleURLName"] = TRIAD_APP_NAME
+                item["CFBundleURLSchemes"] = ["triad"]
+
+        mic_text = plist.get("NSMicrophoneUsageDescription")
+        if isinstance(mic_text, str) and "Codex" in mic_text:
+            plist["NSMicrophoneUsageDescription"] = mic_text.replace("Codex", TRIAD_APP_NAME)
+
+        _write_plist(plist_path, plist)
+        changed = True
+
+    frameworks_dir = app_path / "Contents" / "Frameworks"
+    for spec in HELPER_RENAMES:
+        src_app = frameworks_dir / spec["src_app"]
+        dst_app = frameworks_dir / spec["dst_app"]
+        if _rename_if_exists(src_app, dst_app):
+            changed = True
+
+        helper_app = dst_app if dst_app.exists() else src_app
+        if not helper_app.exists():
+            continue
+
+        helper_exec_src = helper_app / "Contents" / "MacOS" / spec["src_exec"]
+        helper_exec_dst = helper_app / "Contents" / "MacOS" / spec["dst_exec"]
+        if _rename_if_exists(helper_exec_src, helper_exec_dst):
+            changed = True
+
+        helper_plist_path = helper_app / "Contents" / "Info.plist"
+        if not helper_plist_path.exists():
+            continue
+
+        with open(helper_plist_path, "rb") as handle:
+            helper_plist = plistlib.load(handle)
+
+        helper_plist["CFBundleDisplayName"] = spec["display_name"]
+        helper_plist["CFBundleName"] = spec["bundle_name"]
+        helper_plist["CFBundleExecutable"] = spec["dst_exec"]
+        helper_plist["CFBundleIdentifier"] = TRIAD_HELPER_BUNDLE_ID
+
+        _write_plist(helper_plist_path, helper_plist)
+        changed = True
+
+    return changed
 
 
 def patch_info_plist(app_path: Path) -> bool:
@@ -99,55 +241,45 @@ def patch_info_plist(app_path: Path) -> bool:
 
 
 def inject_proxy_launcher(source_dir: Path) -> bool:
-    """Generate launcher.js with absolute Python path and inject into bootstrap."""
-    import sys
-
-    # Find the actual Python that has triad installed
-    python_path = sys.executable  # The Python running this build script
-
-    # Generate launcher with hardcoded path
-    launcher_code = f'''// Triad Proxy Launcher — auto-generated with absolute Python path
-const {{ spawn }} = require("child_process");
-let _p = null, _r = 0;
-function startTriadProxy() {{
-  try {{
-    _p = spawn("{python_path}", ["-m", "triad.cli", "proxy", "--port", "9377"], {{
-      stdio: ["ignore", "ignore", "ignore"],
-      env: {{ ...process.env, PYTHONUNBUFFERED: "1" }},
-      detached: false,
-    }});
-    _p.on("error", function() {{}});
-    _p.on("close", function(c) {{
-      _p = null;
-      if (c !== 0 && c !== null && _r < 3) {{ _r++; setTimeout(startTriadProxy, 2000); }}
-    }});
-  }} catch(e) {{}}
-  const cl = function() {{ try {{ if(_p) _p.kill(); }} catch(e) {{}} }};
-  process.on("exit", cl);
-  process.on("SIGINT", function() {{ cl(); process.exit(0); }});
-  process.on("SIGTERM", function() {{ cl(); process.exit(0); }});
-}}
-module.exports = {{ startTriadProxy }};
-'''
-
+    """Copy launcher.js into the bundle and inject bootstrap readiness handling."""
     launcher_dst = source_dir / ".vite" / "build" / "triad-launcher.js"
-    launcher_dst.write_text(launcher_code, encoding="utf-8")
-    print(f"  Generated launcher with Python: {python_path}")
+    launcher_src = Path(__file__).with_name("launcher.js")
+    if not launcher_src.exists():
+        print("  SKIP: launcher.js source not found")
+        return False
 
-    # Inject require into bootstrap.js
+    launcher_dst.write_text(launcher_src.read_text(encoding="utf-8"), encoding="utf-8")
+    print(f"  PATCHED: Copied launcher from {launcher_src}")
+
+    # Inject launcher and readiness gate into bootstrap.js
     bootstrap_path = source_dir / ".vite" / "build" / "bootstrap.js"
     if not bootstrap_path.exists():
         print("  SKIP: bootstrap.js not found")
         return False
 
     content = bootstrap_path.read_text(encoding="utf-8")
-    if "triad-launcher" in content:
+    changed = False
+
+    if "globalThis.__triadProxyReady" not in content:
+        content = BOOTSTRAP_INJECTION + "\n" + content
+        changed = True
+
+    if "await globalThis.__triadProxyReady()" not in content:
+        new_content = content.replace(
+            "await i.initialize();try{",
+            "await i.initialize();await globalThis.__triadProxyReady();try{",
+            1,
+        )
+        if new_content != content:
+            content = new_content
+            changed = True
+
+    if not changed:
         print("  SKIP: launcher already injected")
         return True
 
-    new_content = BOOTSTRAP_INJECTION + "\n" + content
-    bootstrap_path.write_text(new_content, encoding="utf-8")
-    print("  PATCHED: Proxy auto-start injected into bootstrap.js")
+    bootstrap_path.write_text(content, encoding="utf-8")
+    print("  PATCHED: Proxy launcher + readiness gate injected into bootstrap.js")
     return True
 
 
@@ -278,18 +410,17 @@ def build_standalone_app(
     print(f"1. Copying {source_app} -> {target_app}...")
     shutil.copytree(source_app, target_app, symlinks=True)
 
-    # Step 2: Rename in Info.plist
-    print("2. Updating Info.plist...")
+    # Step 2: Rewrite bundle identity and main Info.plist
+    print("2. Updating desktop identity...")
+    rename_desktop_identity(target_app)
     plist_path = target_app / "Contents" / "Info.plist"
     with open(plist_path, "rb") as f:
         plist = plistlib.load(f)
 
-    plist["CFBundleDisplayName"] = "Triad"
-    # CFBundleName MUST stay "Codex" — Electron uses it to find helper apps
-    # (Codex Helper.app, Codex Helper (GPU).app, etc.)
-    plist["CFBundleName"] = "Codex"
-    plist["CFBundleIdentifier"] = "com.triad.orchestrator"
-    plist["CFBundleExecutable"] = "Codex"
+    plist["CFBundleDisplayName"] = TRIAD_APP_NAME
+    plist["CFBundleName"] = TRIAD_APP_NAME
+    plist["CFBundleIdentifier"] = TRIAD_BUNDLE_ID
+    plist["CFBundleExecutable"] = TRIAD_APP_NAME
 
     # Remove integrity check
     if "ElectronAsarIntegrity" in plist:
@@ -299,8 +430,7 @@ def build_standalone_app(
     plist.pop("SUFeedURL", None)
     plist.pop("SUPublicEDKey", None)
 
-    with open(plist_path, "wb") as f:
-        plistlib.dump(plist, f)
+    _write_plist(plist_path, plist)
 
     # Step 3: Extract asar from the COPY
     asar_path = target_app / "Contents" / "Resources" / "app.asar"
@@ -331,23 +461,23 @@ def build_standalone_app(
     print("\n7. Injecting orchestrator rotation UI...")
     inject_orchestrator_widget(extract_dir)
 
-    # Step 8: Update package.json name
-    print("\n8. Updating package.json...")
+    # Step 8: Inject desktop Accounts UI into webview
+    print("\n8. Injecting Accounts sidebar/page UI...")
+    inject_accounts_ui(extract_dir)
+
+    # Step 9: Update package.json name
+    print("\n9. Updating package.json...")
     pkg_path = extract_dir / "package.json"
     if pkg_path.exists():
-        pkg = json.loads(pkg_path.read_text())
-        pkg["productName"] = "Triad"
-        pkg["name"] = "triad-orchestrator"
-        pkg["codexSparkleFeedUrl"] = ""
-        pkg["codexSparklePublicKey"] = ""
+        pkg = rewrite_package_metadata(json.loads(pkg_path.read_text()))
         pkg_path.write_text(json.dumps(pkg, indent=2))
 
-    # Step 9: Repack asar
-    print("\n9. Repacking asar...")
+    # Step 10: Repack asar
+    print("\n10. Repacking asar...")
     repack_asar(extract_dir, asar_path)
 
-    # Step 10: Disable Electron asar integrity fuse
-    print("\n10. Disabling asar integrity fuse...")
+    # Step 11: Disable Electron asar integrity fuse
+    print("\n11. Disabling asar integrity fuse...")
     fuse_result = subprocess.run(
         ["npx", "@electron/fuses", "write", "--app", str(target_app),
          "EnableEmbeddedAsarIntegrityValidation=off"],
@@ -358,8 +488,8 @@ def build_standalone_app(
     else:
         print(f"  WARNING: Could not disable fuse: {fuse_result.stderr[:200]}")
 
-    # Step 11: Re-sign
-    print("\n11. Signing app...")
+    # Step 12: Re-sign
+    print("\n12. Signing app...")
     subprocess.run(["xattr", "-cr", str(target_app)], capture_output=True)
     subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", str(target_app)],
@@ -414,17 +544,22 @@ def apply_all_patches(
     if inject_proxy_launcher(source_dir):
         applied += 1
 
-    # Step 6: Patch Info.plist
-    print("\n6. Patching Info.plist...")
+    # Step 6: Inject desktop Accounts UI
+    print("\n6. Injecting Accounts sidebar/page UI...")
+    if inject_accounts_ui(source_dir):
+        applied += 1
+
+    # Step 7: Patch Info.plist
+    print("\n7. Patching Info.plist...")
     if patch_info_plist(app_path):
         applied += 1
 
-    # Step 7: Repack
-    print("\n7. Repacking asar...")
+    # Step 8: Repack
+    print("\n8. Repacking asar...")
     repack_asar(source_dir, asar_path)
 
-    # Step 8: Re-sign (remove quarantine)
-    print("\n8. Fixing code signature...")
+    # Step 9: Re-sign (remove quarantine)
+    print("\n9. Fixing code signature...")
     subprocess.run(["xattr", "-cr", str(app_path)], capture_output=True)
     subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", str(app_path)],

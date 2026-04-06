@@ -76,3 +76,54 @@ async def test_log_event_seq_is_unique(ledger: Ledger):
     assert len(seqs) == 10
     assert len(set(seqs)) == 10  # All unique
     assert seqs == sorted(seqs)  # Monotonically increasing
+
+
+async def test_append_event_round_trips_structured_data(ledger: Ledger):
+    sid = await ledger.create_session(
+        mode="solo",
+        task="desktop chat",
+        title="Desktop Chat",
+        project_path="/tmp/project-a",
+    )
+
+    await ledger.append_event(
+        sid,
+        "text_delta",
+        {"delta": "hello"},
+        provider="claude",
+        role="assistant",
+        run_id="run_1",
+    )
+
+    session = await ledger.get_session(sid)
+    events = await ledger.get_session_events(sid)
+
+    assert session["title"] == "Desktop Chat"
+    assert session["project_path"] == "/tmp/project-a"
+    assert len(events) == 1
+    assert events[0]["type"] == "text_delta"
+    assert events[0]["provider"] == "claude"
+    assert events[0]["role"] == "assistant"
+    assert events[0]["run_id"] == "run_1"
+    assert events[0]["data"] == {"delta": "hello"}
+
+
+async def test_list_sessions_can_filter_by_project(ledger: Ledger):
+    await ledger.create_session(mode="solo", task="a", project_path="/tmp/a")
+    await ledger.create_session(mode="solo", task="b", project_path="/tmp/b")
+
+    sessions = await ledger.list_sessions(project_path="/tmp/a")
+
+    assert len(sessions) == 1
+    assert sessions[0]["project_path"] == "/tmp/a"
+
+
+async def test_save_and_list_projects(ledger: Ledger):
+    await ledger.save_project("/tmp/project-a", "Project A", "/tmp/project-a")
+    await ledger.save_project("/tmp/project-b", "Project B", "/tmp/project-b")
+
+    projects = await ledger.list_projects()
+
+    assert len(projects) == 2
+    assert projects[0]["name"] in {"Project A", "Project B"}
+    assert {project["path"] for project in projects} == {"/tmp/project-a", "/tmp/project-b"}

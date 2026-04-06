@@ -1,11 +1,9 @@
 """Triad Textual TUI application."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from textual.app import App
 
-from triad.core.config import TriadConfig, load_config
+from triad.core.config import TriadConfig, get_default_config_path, load_config
 from triad.tui.screens.main import MainScreen
 
 
@@ -27,7 +25,7 @@ class TriadApp(App):
 
     def __init__(self, config: TriadConfig | None = None, initial_mode: str | None = None):
         super().__init__()
-        config_path = Path.home() / ".triad" / "config.yaml"
+        config_path = get_default_config_path()
         self.triad_config = config or load_config(config_path)
         self.initial_mode = initial_mode
 
