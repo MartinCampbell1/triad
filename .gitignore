@@ -12,3 +12,23 @@ target/
 .DS_Store
 .coverage
 .omc/
+
+# Local secrets and machine-specific metadata
+.env
+.env.*
+!.env.example
+!.env.sample
+.claude/
+.aws/
+.ssh/
+.netrc
+.npmrc
+.pypirc
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.keystore
