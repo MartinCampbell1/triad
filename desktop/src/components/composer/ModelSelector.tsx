@@ -12,7 +12,7 @@ export function ModelSelector() {
   const { activeModel, setActiveModel, setActiveProvider } = useProviderStore();
 
   return (
-    <label className="relative inline-flex items-center gap-1 rounded-full border border-border-default bg-black/20 px-3 py-1 text-[12px] text-text-secondary transition-colors hover:border-border-heavy">
+    <label className="relative inline-flex cursor-pointer items-center gap-1 text-[13px] text-text-secondary transition-colors hover:text-text-primary">
       <span>{MODELS.find((model) => model.id === activeModel)?.label ?? activeModel}</span>
       <select
         value={activeModel}
@@ -32,7 +32,9 @@ export function ModelSelector() {
           </option>
         ))}
       </select>
-      <span className="text-[10px] text-text-tertiary">▾</span>
+      <svg width="8" height="8" viewBox="0 0 16 16" fill="none" className="text-text-tertiary opacity-60">
+        <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </label>
   );
 }

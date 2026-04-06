@@ -1,5 +1,4 @@
 import type { Message, StreamingRun } from "../../lib/types";
-import { Badge } from "../shared/Badge";
 
 interface TranscriptAnchor {
   messageId: string;
@@ -30,7 +29,7 @@ function compactLabel(value: string, max = 48) {
   if (!normalized) {
     return "Untitled turn";
   }
-  return normalized.length > max ? `${normalized.slice(0, max - 1).trimEnd()}…` : normalized;
+  return normalized.length > max ? `${normalized.slice(0, max - 1).trimEnd()}...` : normalized;
 }
 
 function selectAnchorIndexes(total: number, maxAnchors = 6) {
@@ -88,45 +87,27 @@ export function buildTranscriptOverview(
   };
 }
 
-function summaryLine(overview: TranscriptOverviewData) {
-  if (overview.firstTopic && overview.latestTopic && overview.firstTopic !== overview.latestTopic) {
-    return `Started with "${overview.firstTopic}" and is now focused on "${overview.latestTopic}".`;
-  }
-  if (overview.latestTopic) {
-    return `Current focus: "${overview.latestTopic}".`;
-  }
-  return `Session has ${overview.totalMessages} visible messages.`;
-}
-
 export function TranscriptOverview({ overview, onJump }: Props) {
   return (
-    <div className="codex-message-enter-subtle rounded-[20px] border border-border-light bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.18)]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.12em] text-text-tertiary">Session map</div>
-          <div className="mt-1 text-[13px] leading-[1.6] text-text-secondary">{summaryLine(overview)}</div>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Badge tone="subtle">{`${overview.totalMessages} msgs`}</Badge>
-          <Badge tone="neutral">{`${overview.userTurns} turns`}</Badge>
-          <Badge tone="neutral">{`${overview.assistantMessages} replies`}</Badge>
-          {overview.toolEvents > 0 ? <Badge tone="subtle">{`${overview.toolEvents} tools`}</Badge> : null}
-          {overview.findings > 0 ? <Badge tone="subtle">{`${overview.findings} findings`}</Badge> : null}
-          {overview.liveRuns > 0 ? <Badge tone="accent">{`${overview.liveRuns} live`}</Badge> : null}
-        </div>
+    <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] px-3 py-2">
+      <div className="flex items-center gap-3 text-[12px] text-text-tertiary">
+        <span>{overview.totalMessages} msgs</span>
+        <span>{overview.userTurns} turns</span>
+        {overview.toolEvents > 0 ? <span>{overview.toolEvents} tools</span> : null}
+        {overview.liveRuns > 0 ? <span className="text-[#339cff]">{overview.liveRuns} live</span> : null}
       </div>
 
       {overview.anchors.length > 1 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           {overview.anchors.map((anchor) => (
             <button
               key={anchor.messageId}
               type="button"
               onClick={() => onJump(anchor.messageId)}
-              className="rounded-full border border-border-light bg-black/15 px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:border-border-default hover:bg-white/5 hover:text-text-primary"
+              className="rounded-md px-2 py-0.5 text-[11px] text-text-tertiary transition-colors hover:bg-white/[0.04] hover:text-text-secondary"
               title={anchor.label}
             >
-              {`Turn ${anchor.turn}: ${anchor.label}`}
+              {`#${anchor.turn} ${anchor.label}`}
             </button>
           ))}
         </div>

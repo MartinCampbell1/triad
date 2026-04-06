@@ -32,6 +32,8 @@ export interface Session {
   updated_at: string;
   message_count: number;
   provider?: ProviderId;
+  diff_additions?: number;
+  diff_deletions?: number;
 }
 
 export interface ToolCall {

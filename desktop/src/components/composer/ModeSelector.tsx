@@ -12,7 +12,10 @@ export function ModeSelector() {
   const { mode, setMode } = useProviderStore();
 
   return (
-    <label className="relative inline-flex items-center gap-1 rounded-full border border-border-default bg-black/20 px-3 py-1 text-[12px] text-text-secondary transition-colors hover:border-border-heavy">
+    <label className="relative inline-flex cursor-pointer items-center gap-1 text-text-tertiary transition-colors hover:text-text-secondary">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+        <path d="M8 2L2 8l6 6 6-6L8 2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      </svg>
       <span>{MODES.find((item) => item.id === mode)?.label ?? mode}</span>
       <select
         value={mode}
@@ -26,7 +29,9 @@ export function ModeSelector() {
           </option>
         ))}
       </select>
-      <span className="text-[10px] text-text-tertiary">▾</span>
+      <svg width="8" height="8" viewBox="0 0 16 16" fill="none" className="opacity-60">
+        <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </label>
   );
 }

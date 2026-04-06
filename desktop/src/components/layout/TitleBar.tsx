@@ -1,91 +1,25 @@
-import { Badge } from "../shared/Badge";
-import { useBridgeStore } from "../../stores/bridge-store";
+import { useState } from "react";
 import { useProjectStore } from "../../stores/project-store";
-import { useProviderStore } from "../../stores/provider-store";
 import { useSessionStore } from "../../stores/session-store";
 import { useUiStore } from "../../stores/ui-store";
 
-function TrafficLight({ tone }: { tone: "red" | "yellow" | "green" }) {
-  const colors: Record<typeof tone, string> = {
-    red: "bg-[#ff5f57]",
-    yellow: "bg-[#febc2e]",
-    green: "bg-[#28c840]",
-  };
-
-  return <span className={`h-3 w-3 rounded-full ${colors[tone]} shadow-[inset_0_0_0_1px_rgba(0,0,0,0.2)]`} />;
-}
-
-function statusBadgeClass(status?: string) {
-  switch (status) {
-    case "running":
-      return "border-[rgba(51,156,255,0.24)] bg-[rgba(51,156,255,0.12)] text-[#8cc7ff]";
-    case "completed":
-      return "border-[rgba(64,201,119,0.24)] bg-[rgba(64,201,119,0.12)] text-[#8fdfae]";
-    case "failed":
-      return "border-[rgba(255,103,100,0.24)] bg-[rgba(255,103,100,0.12)] text-[#ff9b99]";
-    case "paused":
-      return "border-[rgba(255,210,64,0.24)] bg-[rgba(255,210,64,0.12)] text-[#ffd96f]";
-    default:
-      return "border-border-light bg-black/20 text-text-secondary";
-  }
-}
-
-function providerTone(provider?: string): "neutral" | "subtle" | "accent" {
-  if (provider === "codex") return "accent";
-  if (provider === "gemini") return "subtle";
-  return "neutral";
-}
-
-function providerLabel(provider?: string) {
-  if (provider === "claude") return "Claude";
-  if (provider === "codex") return "Codex";
-  if (provider === "gemini") return "Gemini";
-  return provider ?? "Provider";
-}
-
-function modeLabel(mode?: string) {
-  if (!mode) return "Solo";
-  return mode.charAt(0).toUpperCase() + mode.slice(1);
-}
-
-function bridgeTone(connected: boolean, reconnecting: boolean): "neutral" | "subtle" | "accent" {
-  if (reconnecting) return "subtle";
-  return connected ? "accent" : "neutral";
-}
-
-function bridgeLabel(connected: boolean, reconnecting: boolean, started: boolean, backendMode: string) {
-  if (!started) return "Bridge starting";
-  if (reconnecting) return "Bridge retrying";
-  if (connected) return "Bridge live";
-  return backendMode === "mock" ? "Bridge mock" : "Bridge offline";
-}
-
-function ShellButton({
-  active = false,
-  disabled = false,
+function TitleBarButton({
   title,
   onClick,
   children,
+  className = "",
 }: {
-  active?: boolean;
-  disabled?: boolean;
   title: string;
   onClick?: () => void;
-  children: string;
+  children: React.ReactNode;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       title={title}
-      disabled={disabled}
       onClick={onClick}
-      className={[
-        "rounded-md border px-2.5 py-1 text-[11px] transition-colors",
-        disabled ? "cursor-not-allowed opacity-40" : "",
-        active
-          ? "border-[rgba(51,156,255,0.24)] bg-[rgba(51,156,255,0.12)] text-text-primary"
-          : "border-border-light bg-black/10 text-text-tertiary hover:border-border-default hover:text-text-secondary",
-      ].join(" ")}
+      className={`flex h-7 w-7 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-white/5 hover:text-text-secondary ${className}`}
     >
       {children}
     </button>
@@ -93,100 +27,150 @@ function ShellButton({
 }
 
 export function TitleBar() {
-  const titlebarCompact = useUiStore((state) => state.titlebarCompact);
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
-  const drawerOpen = useUiStore((state) => state.drawerOpen);
   const diffPanelOpen = useUiStore((state) => state.diffPanelOpen);
   const diffFiles = useUiStore((state) => state.diffFiles);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
-  const toggleDrawer = useUiStore((state) => state.toggleDrawer);
   const toggleDiffPanel = useUiStore((state) => state.toggleDiffPanel);
-  const setTitlebarCompact = useUiStore((state) => state.setTitlebarCompact);
   const activeProject = useProjectStore((state) => state.activeProject);
   const activeSession = useSessionStore((state) => state.activeSession);
-  const forkSession = useSessionStore((state) => state.forkSession);
-  const fallbackMode = useProviderStore((state) => state.mode);
-  const fallbackProvider = useProviderStore((state) => state.activeProvider);
-  const bridgeStatus = useBridgeStore((state) => state.status);
+  const [commitOpen, setCommitOpen] = useState(false);
 
-  const forkCurrentSession = () => {
-    if (!activeSession) {
-      return;
-    }
-    void forkSession(activeSession.id);
-  };
-
-  const mode = activeSession?.mode ?? fallbackMode;
-  const provider = activeSession?.provider ?? fallbackProvider;
-  const status = activeSession?.status ?? "active";
+  // Calculate diff stats from files
+  const diffStats = diffFiles.reduce(
+    (acc, file) => {
+      const oldLines = file.oldContent.split("\n").length;
+      const newLines = file.newContent.split("\n").length;
+      return {
+        additions: acc.additions + Math.max(0, newLines - oldLines),
+        deletions: acc.deletions + Math.max(0, oldLines - newLines),
+      };
+    },
+    { additions: 0, deletions: 0 }
+  );
 
   return (
     <div
-      className={[
-        "flex items-center gap-3 border-b border-border-light bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] px-4 backdrop-blur-xl",
-        titlebarCompact ? "h-11" : "h-12",
-      ].join(" ")}
+      data-tauri-drag-region
+      className="flex h-[var(--titlebar-height)] items-center border-b border-[rgba(255,255,255,0.06)] bg-transparent"
     >
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2.5">
-          <TrafficLight tone="red" />
-          <TrafficLight tone="yellow" />
-          <TrafficLight tone="green" />
-        </div>
-
-        <div className="flex items-center gap-1">
-          <ShellButton title="Toggle sidebar" onClick={toggleSidebar} active={!sidebarCollapsed}>
-            ≡
-          </ShellButton>
-          <ShellButton title="Toggle terminal" onClick={toggleDrawer} active={drawerOpen}>
-            ⌁
-          </ShellButton>
-          <ShellButton title="Toggle diff panel" onClick={toggleDiffPanel} active={diffPanelOpen}>
-            {`Δ${diffFiles.length > 0 ? ` ${diffFiles.length}` : ""}`}
-          </ShellButton>
-          <ShellButton
-            title="Fork current session"
-            onClick={forkCurrentSession}
-            active={Boolean(activeSession)}
-            disabled={!activeSession}
-          >
-            Fork
-          </ShellButton>
-        </div>
+      {/* Left: sidebar toggle + nav arrows */}
+      <div className="flex items-center gap-1 pl-[78px]">
+        <TitleBarButton title="Toggle sidebar" onClick={toggleSidebar}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+            <line x1="5.5" y1="2.5" x2="5.5" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </TitleBarButton>
+        <TitleBarButton title="Back">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </TitleBarButton>
+        <TitleBarButton title="Forward">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </TitleBarButton>
       </div>
 
-      <div data-tauri-drag-region className="min-w-0 flex-1 px-3">
-        <div className="truncate text-center text-[13px] font-medium tracking-[-0.01em] text-text-primary">
+      {/* Center: session title + project name */}
+      <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center justify-center gap-2 px-4">
+        <span className="truncate text-[13px] font-medium text-text-primary">
           {activeSession?.title ?? "Новая беседа"}
-        </div>
-        <div className="truncate text-center text-[11px] text-text-tertiary">
-          {activeProject?.name ?? "Triad Desktop"}
-          {activeProject?.path ? <span className="ml-2 text-text-muted">{activeProject.path}</span> : null}
-        </div>
+        </span>
+        <span className="truncate text-[13px] text-text-tertiary">
+          {activeProject?.name ?? ""}
+        </span>
+        <button className="ml-0.5 text-text-tertiary hover:text-text-secondary">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="3" cy="8" r="1.5" />
+            <circle cx="8" cy="8" r="1.5" />
+            <circle cx="13" cy="8" r="1.5" />
+          </svg>
+        </button>
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <Badge
-          tone={bridgeTone(bridgeStatus.connected, bridgeStatus.reconnecting)}
-          title={bridgeStatus.lastError ?? bridgeStatus.fallbackReason ?? undefined}
-        >
-          {bridgeLabel(
-            bridgeStatus.connected,
-            bridgeStatus.reconnecting,
-            bridgeStatus.started,
-            bridgeStatus.backendMode
-          )}
-        </Badge>
-        <Badge tone="subtle">{modeLabel(mode)}</Badge>
-        <Badge tone={providerTone(provider)}>{providerLabel(provider)}</Badge>
-        <Badge className={statusBadgeClass(status)}>{status}</Badge>
-        <ShellButton
-          title={titlebarCompact ? "Expand title bar" : "Compact title bar"}
-          onClick={() => setTitlebarCompact(!titlebarCompact)}
-          active={titlebarCompact}
-        >
-          {titlebarCompact ? "▣" : "▢"}
-        </ShellButton>
+      {/* Right: action buttons matching Codex */}
+      <div className="flex items-center gap-1 pr-3">
+        {/* Run */}
+        <TitleBarButton title="Run">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4 2.5L13 8L4 13.5V2.5Z" />
+          </svg>
+        </TitleBarButton>
+
+        {/* Split view */}
+        <TitleBarButton title="Split view" onClick={toggleDiffPanel}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+            <line x1="8" y1="2.5" x2="8" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </TitleBarButton>
+
+        {/* Separator */}
+        <div className="mx-1 h-4 w-px bg-[rgba(255,255,255,0.06)]" />
+
+        {/* Move to worktree */}
+        <button className="flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-white/5 hover:text-text-secondary">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8h10M10 5l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="max-w-[180px] truncate">Переместить в рабочее дерево</span>
+        </button>
+
+        {/* Commit button with gear icon */}
+        {activeSession ? (
+          <button
+            onClick={() => setCommitOpen(!commitOpen)}
+            className="flex items-center gap-1.5 rounded-md border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.04)] px-2.5 py-1 text-[12px] text-text-secondary transition-colors hover:bg-white/[0.06] hover:text-text-primary"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <span>Совершить</span>
+            <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
+              <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        ) : null}
+
+        {/* Separator */}
+        <div className="mx-0.5 h-4 w-px bg-[rgba(255,255,255,0.06)]" />
+
+        {/* More icons */}
+        <TitleBarButton title="Open externally">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1v-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            <path d="M9 2h5v5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M14 2L7 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+        </TitleBarButton>
+
+        <TitleBarButton title="Download">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path d="M8 2v8M8 10L5 7M8 10L11 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 13h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+        </TitleBarButton>
+
+        {/* Diff stats */}
+        {(diffStats.additions > 0 || diffStats.deletions > 0) ? (
+          <span className="ml-1 text-[12px]">
+            <span className="text-green-300">+{diffStats.additions}</span>
+            {" "}
+            <span className="text-red-300">-{diffStats.deletions}</span>
+          </span>
+        ) : null}
+
+        {/* Share/copy icon */}
+        <TitleBarButton title="Share">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M7 3V1h8v8h-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </TitleBarButton>
       </div>
     </div>
   );

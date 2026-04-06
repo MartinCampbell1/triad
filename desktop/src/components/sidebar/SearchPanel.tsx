@@ -84,23 +84,27 @@ export function SearchPanel() {
   };
 
   return (
-    <div className="px-4 pb-3">
-      <div className="rounded-[16px] border border-border-default bg-[rgba(255,255,255,0.03)] px-3 py-2 shadow-[0_8px_30px_rgba(0,0,0,0.18)]">
+    <div className="px-3 pb-2">
+      <div className="flex items-center gap-2 rounded-lg border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] px-3 py-[6px]">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 text-text-tertiary">
+          <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M11 11L14.5 14.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Поиск по сессиям"
+          placeholder="Поиск"
           className="w-full border-0 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-muted"
         />
       </div>
 
       {query.trim() ? (
-        <div className="mt-2 rounded-[16px] border border-border-light bg-[rgba(0,0,0,0.18)] p-1.5">
+        <div className="mt-1.5 rounded-lg border border-[rgba(255,255,255,0.06)] bg-[rgba(0,0,0,0.2)] p-1">
           {searching ? (
-            <div className="px-2 py-4 text-center text-[12px] text-text-tertiary">Поиск…</div>
+            <div className="px-2 py-3 text-center text-[12px] text-text-tertiary">Поиск...</div>
           ) : null}
           {!searching && visibleResults.length === 0 ? (
-            <div className="px-2 py-4 text-center text-[12px] text-text-tertiary">Ничего не найдено</div>
+            <div className="px-2 py-3 text-center text-[12px] text-text-tertiary">Ничего не найдено</div>
           ) : null}
           {!searching &&
             visibleResults.map((result) => (
@@ -108,11 +112,11 @@ export function SearchPanel() {
                 key={result.event_id}
                 type="button"
                 onClick={() => void handleOpenResult(result)}
-                className="mb-1 block w-full rounded-[12px] px-2.5 py-2 text-left transition-colors hover:bg-white/5 last:mb-0"
+                className="block w-full rounded-md px-2.5 py-[6px] text-left transition-colors hover:bg-white/[0.04]"
               >
-                <div className="truncate text-[12px] font-medium text-text-primary">{result.session_title}</div>
+                <div className="truncate text-[12px] text-text-primary">{result.session_title}</div>
                 <div
-                  className="mt-1 line-clamp-2 text-[11px] leading-[1.5] text-text-secondary"
+                  className="mt-0.5 line-clamp-2 text-[11px] leading-[1.5] text-text-tertiary"
                   dangerouslySetInnerHTML={{ __html: formatSnippet(result.snippet) }}
                 />
               </button>

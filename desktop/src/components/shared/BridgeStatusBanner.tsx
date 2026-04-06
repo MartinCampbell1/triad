@@ -1,14 +1,6 @@
 import { useState } from "react";
 import { reconnectBridge } from "../../lib/rpc";
 import { useBridgeStore } from "../../stores/bridge-store";
-import { Badge } from "./Badge";
-
-function statusTone(connected: boolean, reconnecting: boolean) {
-  if (reconnecting) {
-    return "subtle";
-  }
-  return connected ? "accent" : "neutral";
-}
 
 export function BridgeStatusBanner() {
   const status = useBridgeStore((state) => state.status);
@@ -41,28 +33,20 @@ export function BridgeStatusBanner() {
   };
 
   return (
-    <div className="codex-message-enter-subtle mx-4 mb-2 rounded-[16px] border border-[rgba(51,156,255,0.18)] bg-[linear-gradient(180deg,rgba(51,156,255,0.12),rgba(255,255,255,0.02))] px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-4 mb-1 rounded-lg border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-[12px] font-medium text-text-primary">{headline}</div>
-            <Badge tone={statusTone(status.connected, status.reconnecting)}>
-              {status.backendMode === "tauri" ? "live" : "mock"}
-            </Badge>
-            {status.reconnecting ? <Badge tone="subtle">reconnecting</Badge> : null}
-          </div>
-          <div className="mt-1 text-[12px] leading-[1.5] text-text-secondary">{detail}</div>
+          <div className="text-[12px] text-text-primary">{headline}</div>
+          <div className="mt-0.5 text-[11px] text-text-tertiary">{detail}</div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleRetry()}
-            disabled={retrying || status.reconnecting}
-            className="rounded-md border border-[rgba(51,156,255,0.24)] bg-[rgba(51,156,255,0.12)] px-3 py-1.5 text-[12px] font-medium text-[#8cc7ff] transition-colors hover:border-[rgba(51,156,255,0.36)] hover:bg-[rgba(51,156,255,0.16)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {retrying || status.reconnecting ? "Retrying..." : "Retry bridge"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void handleRetry()}
+          disabled={retrying || status.reconnecting}
+          className="flex-shrink-0 rounded-md px-2.5 py-1 text-[12px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary disabled:opacity-50"
+        >
+          {retrying || status.reconnecting ? "Retrying..." : "Retry"}
+        </button>
       </div>
     </div>
   );

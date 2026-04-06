@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Composer } from "./components/composer/Composer";
 import { BridgeStatusBanner } from "./components/shared/BridgeStatusBanner";
+import { CommitDialog } from "./components/shared/CommitDialog";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { TerminalDrawer } from "./components/terminal/TerminalDrawer";
@@ -49,6 +50,7 @@ export function App() {
   const clearDiffFiles = useUiStore((state) => state.clearDiffFiles);
   const setBridgeStatus = useBridgeStore((state) => state.setStatus);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [commitOpen, setCommitOpen] = useState(false);
 
   useStreamEvents();
 
@@ -242,13 +244,6 @@ export function App() {
         action: toggleSidebar,
       },
       {
-        id: "focus-session",
-        label: "Focus Active Session",
-        description: activeSession ? activeSession.title : "No active session",
-        keywords: ["active", "session"],
-        action: () => setPaletteOpen(false),
-      },
-      {
         id: "stop-run",
         label: "Stop Current Run",
         description: "Send a stop signal to the active session",
@@ -309,7 +304,7 @@ export function App() {
   );
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-surface text-text-primary">
+    <div className="flex h-full w-full overflow-hidden bg-[var(--color-bg-surface)] text-text-primary">
       {!sidebarCollapsed ? <Sidebar /> : null}
       <div className="flex min-w-0 flex-1 flex-col">
         <BridgeStatusBanner />
@@ -320,7 +315,7 @@ export function App() {
             <Composer />
           </div>
           {diffPanelOpen ? (
-            <Suspense fallback={<div className="w-[44%] min-w-[360px] border-l border-border-light bg-[var(--color-bg-editor)]" />}>
+            <Suspense fallback={<div className="w-[44%] min-w-[360px] border-l border-[rgba(255,255,255,0.06)] bg-[var(--color-bg-editor)]" />}>
               <DiffPanel files={diffFiles} />
             </Suspense>
           ) : null}
@@ -332,6 +327,7 @@ export function App() {
           <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
         </Suspense>
       ) : null}
+      <CommitDialog open={commitOpen} onClose={() => setCommitOpen(false)} />
     </div>
   );
 }

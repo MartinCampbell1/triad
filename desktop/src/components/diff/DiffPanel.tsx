@@ -10,20 +10,20 @@ function lineDiff(oldValue: string, newValue: string) {
   const oldLines = oldValue.split("\n");
   const newLines = newValue.split("\n");
   const max = Math.max(oldLines.length, newLines.length);
-  const rows: Array<{ kind: "context" | "add" | "remove"; oldLine?: string; newLine?: string }> = [];
+  const rows: Array<{ kind: "context" | "add" | "remove"; oldLine?: string; newLine?: string; lineNo: number }> = [];
 
   for (let index = 0; index < max; index += 1) {
     const oldLine = oldLines[index];
     const newLine = newLines[index];
     if (oldLine === newLine) {
-      rows.push({ kind: "context", oldLine, newLine });
+      rows.push({ kind: "context", oldLine, newLine, lineNo: index + 1 });
       continue;
     }
     if (oldLine !== undefined) {
-      rows.push({ kind: "remove", oldLine });
+      rows.push({ kind: "remove", oldLine, lineNo: index + 1 });
     }
     if (newLine !== undefined) {
-      rows.push({ kind: "add", newLine });
+      rows.push({ kind: "add", newLine, lineNo: index + 1 });
     }
   }
 
@@ -33,83 +33,82 @@ function lineDiff(oldValue: string, newValue: string) {
 function DiffFallback({ file }: { file: DiffFile }) {
   const rows = useMemo(() => lineDiff(file.oldContent, file.newContent), [file]);
   return (
-    <div className="overflow-hidden rounded-[18px] border border-border-default bg-[rgba(255,255,255,0.02)]">
-      <div className="flex items-center justify-between border-b border-border-light px-4 py-2">
-        <div className="min-w-0">
-          <div className="truncate text-[12px] font-medium text-text-primary">{file.path}</div>
-          <div className="text-[11px] text-text-tertiary">Unified diff preview</div>
+    <div className="h-full overflow-auto font-mono text-[12px] leading-[1.5]">
+      {rows.map((row, index) => (
+        <div
+          key={`${file.path}-${index}`}
+          className={[
+            "flex",
+            row.kind === "add" ? "bg-[rgba(64,201,119,0.1)]" : "",
+            row.kind === "remove" ? "bg-[rgba(255,103,100,0.1)]" : "",
+          ].join(" ")}
+        >
+          <span className="w-[50px] flex-shrink-0 select-none px-2 py-px text-right text-[11px] text-text-tertiary">
+            {row.lineNo}
+          </span>
+          <span className="w-[20px] flex-shrink-0 select-none px-1 py-px text-center text-text-tertiary">
+            {row.kind === "remove" ? "-" : row.kind === "add" ? "+" : " "}
+          </span>
+          <span className={[
+            "flex-1 whitespace-pre-wrap break-words px-2 py-px",
+            row.kind === "add" ? "text-[#c8f7d5]" : "",
+            row.kind === "remove" ? "text-[#ffd6d4]" : "",
+            row.kind === "context" ? "text-text-secondary" : "",
+          ].join(" ")}>
+            {row.oldLine ?? row.newLine ?? ""}
+          </span>
         </div>
-        <span className="rounded-full border border-border-light px-2 py-1 text-[11px] text-text-tertiary">
-          staged preview
-        </span>
-      </div>
-      <div className="max-h-[60vh] overflow-auto">
-        {rows.map((row, index) => (
-          <div
-            key={`${file.path}-${index}`}
-            className={[
-              "grid grid-cols-[56px_minmax(0,1fr)] gap-3 border-b border-border-light px-4 py-1.5 font-mono text-[12px] leading-[1.45]",
-              row.kind === "add" ? "bg-[rgba(64,201,119,0.08)] text-[#d5ffe5]" : "",
-              row.kind === "remove" ? "bg-[rgba(255,103,100,0.08)] text-[#ffd6d4]" : "",
-              row.kind === "context" ? "text-[#d8d8d8]" : "",
-            ].join(" ")}
-          >
-            <span className="select-none text-right text-[11px] text-text-tertiary">
-              {row.kind === "remove" ? "-" : row.kind === "add" ? "+" : " "}
-            </span>
-            <span className="whitespace-pre-wrap break-words">
-              {row.oldLine ?? row.newLine ?? ""}
-            </span>
-          </div>
-        ))}
-      </div>
+      ))}
     </div>
   );
 }
 
 export function DiffPanel({ files }: Props) {
   const { diffPanelOpen, toggleDiffPanel, activeDiffPath, setActiveDiffPath } = useUiStore();
-  const activeFile =
-    files.find((file) => file.path === activeDiffPath) ??
-    files[0] ??
-    null;
+  const activeFile = files.find((file) => file.path === activeDiffPath) ?? files[0] ?? null;
 
   if (!diffPanelOpen) {
     return null;
   }
 
   return (
-    <aside className="flex w-[44%] min-w-[360px] flex-col border-l border-border-light bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_25%),var(--color-bg-editor)]">
-      <div className="flex h-10 items-center justify-between border-b border-border-light px-4">
+    <aside className="flex w-[44%] min-w-[360px] flex-col border-l border-[rgba(255,255,255,0.06)] bg-[var(--color-bg-editor)]">
+      {/* Header */}
+      <div className="flex h-9 items-center justify-between border-b border-[rgba(255,255,255,0.06)] px-3">
         <div className="flex items-center gap-2">
-          <span className="text-[12px] font-medium text-text-primary">
-            {files.length ? `${files.length} file${files.length === 1 ? "" : "s"}` : "No changes"}
-          </span>
-          <span className="rounded-full border border-border-light px-2 py-1 text-[11px] text-text-tertiary">
-            Непоставленный
-          </span>
+          {activeFile ? (
+            <span className="truncate text-[12px] text-text-primary">
+              {activeFile.path.split("/").pop() ?? activeFile.path}
+            </span>
+          ) : (
+            <span className="text-[12px] text-text-tertiary">No changes</span>
+          )}
+          <span className="text-[11px] text-text-tertiary">Непоставленный</span>
         </div>
         <button
           type="button"
           onClick={toggleDiffPanel}
-          className="rounded-md border border-border-light px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:border-border-default hover:text-text-primary"
+          className="flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:text-text-secondary"
         >
-          Close
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
         </button>
       </div>
 
+      {/* File tabs */}
       {files.length > 1 ? (
-        <div className="flex gap-2 overflow-x-auto border-b border-border-light px-3 py-2">
+        <div className="flex gap-px overflow-x-auto border-b border-[rgba(255,255,255,0.06)] bg-[rgba(0,0,0,0.2)]">
           {files.map((file) => (
             <button
               key={file.path}
               type="button"
               onClick={() => setActiveDiffPath(file.path)}
               className={[
-                "shrink-0 rounded-full px-3 py-1 text-[11px] transition-colors",
+                "px-3 py-1.5 text-[12px] transition-colors",
                 file.path === activeFile?.path
-                  ? "bg-elevated text-text-primary shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
-                  : "text-text-tertiary hover:bg-elevated-secondary hover:text-text-primary",
+                  ? "bg-[var(--color-bg-editor)] text-text-primary"
+                  : "text-text-tertiary hover:text-text-secondary",
               ].join(" ")}
             >
               {file.path.split("/").pop() ?? file.path}
@@ -118,18 +117,13 @@ export function DiffPanel({ files }: Props) {
         </div>
       ) : null}
 
-      <div className="flex-1 overflow-auto p-3">
+      {/* Diff content */}
+      <div className="flex-1 overflow-hidden">
         {activeFile ? (
           <DiffFallback file={activeFile} />
         ) : (
-          <div className="grid h-full place-items-center rounded-[18px] border border-dashed border-border-light bg-[rgba(255,255,255,0.015)] px-6 py-12 text-center">
-            <div>
-              <div className="text-[18px] text-text-primary">Diff panel</div>
-              <p className="mt-2 max-w-[320px] text-[13px] leading-[1.6] text-text-tertiary">
-                Open this panel when a file is staged or a patch is available. It is ready for react-diff-viewer-continued,
-                but renders a high-quality fallback until the dependency is wired in.
-              </p>
-            </div>
+          <div className="flex h-full items-center justify-center text-[13px] text-text-tertiary">
+            No files to diff
           </div>
         )}
       </div>

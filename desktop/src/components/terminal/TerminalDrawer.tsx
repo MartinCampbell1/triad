@@ -49,15 +49,9 @@ export function TerminalDrawer() {
   const [status, setStatus] = useState<string>("starting");
 
   const headerLabel = useMemo(() => {
-    if (!drawerOpen) {
-      return "Terminal";
-    }
-    if (status === "ready") {
-      return "Загружен 1 терминал";
-    }
-    if (status === "unavailable") {
-      return "Terminal unavailable";
-    }
+    if (!drawerOpen) return "Terminal";
+    if (status === "ready") return "Загружен 1 терминал";
+    if (status === "unavailable") return "Terminal unavailable";
     return "Загрузка терминала...";
   }, [drawerOpen, status]);
 
@@ -142,20 +136,14 @@ export function TerminalDrawer() {
           void rpc("terminal.input", {
             terminal_id: terminalId,
             data: encodeInput(data),
-          }).catch(() => {
-            // Keep the terminal usable even if backend input drops.
-          });
+          }).catch(() => {});
         });
 
         resizeRef.current = dataDisposable && typeof dataDisposable === "object" ? dataDisposable : null;
 
         const unsub = onEvent((event) => {
-          if (event.type !== "terminal_output") {
-            return;
-          }
-          if (event.terminal_id !== terminalIdRef.current) {
-            return;
-          }
+          if (event.type !== "terminal_output") return;
+          if (event.terminal_id !== terminalIdRef.current) return;
           const payload = typeof event.data === "string" ? safeAtob(event.data) : "";
           if (payload) {
             terminal.write(payload);
@@ -235,51 +223,46 @@ export function TerminalDrawer() {
       <button
         type="button"
         onClick={toggleDrawer}
-        className="flex h-9 w-full items-center gap-2 border-t border-border-light bg-[rgba(24,24,24,0.96)] px-4 text-left text-[12px] text-text-secondary transition-colors hover:text-text-primary"
+        className="flex h-8 w-full items-center gap-2 border-t border-[rgba(255,255,255,0.06)] bg-[var(--color-bg-surface)] px-4 text-left text-[12px] text-text-secondary transition-colors hover:text-text-primary"
       >
-        <span className="h-2 w-2 rounded-full bg-[#339cff]" />
-        <span>Terminal</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="text-text-tertiary">
+          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span>{headerLabel}</span>
       </button>
     );
   }
 
   return (
     <section
-      className="codex-terminal-shell relative flex flex-col overflow-hidden border-t border-border-light bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent_35%),var(--color-bg-surface)]"
+      className="flex flex-col border-t border-[rgba(255,255,255,0.06)] bg-[var(--color-bg-surface)]"
       style={{ height: drawerHeight }}
     >
-      <div className="codex-terminal-ambient pointer-events-none absolute inset-0 opacity-100" />
-      <div className="relative z-10 flex h-9 items-center justify-between border-b border-border-light bg-[rgba(24,24,24,0.92)] px-4 backdrop-blur-[10px]">
-        <div className="flex items-center gap-3">
-          <span className="text-[12px] font-medium text-text-primary">{headerLabel}</span>
-          <span className="text-[11px] text-text-tertiary">{ready ? "interactive" : "loading"}</span>
-        </div>
+      {/* Header */}
+      <div className="flex h-8 items-center justify-between border-b border-[rgba(255,255,255,0.06)] px-4">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              void rpc("terminal.close", { terminal_id: terminalIdRef.current ?? "" }).catch(() => undefined);
-              toggleDrawer();
-            }}
-            className="rounded-md border border-border-light px-2 py-1 text-[11px] text-text-tertiary transition-[transform,border-color,background-color,color] duration-200 ease-out hover:-translate-y-0.5 hover:border-border-default hover:bg-white/5 hover:text-text-primary"
-          >
-            Close
-          </button>
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="text-text-tertiary">
+            <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-[12px] text-text-secondary">{headerLabel}</span>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            void rpc("terminal.close", { terminal_id: terminalIdRef.current ?? "" }).catch(() => undefined);
+            toggleDrawer();
+          }}
+          className="flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:text-text-secondary"
+        >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
 
-      <div className="relative z-10 flex-1 overflow-hidden px-2 py-2">
-        <div
-          ref={mountRef}
-          className="h-full w-full rounded-[18px] border border-border-default bg-[rgba(0,0,0,0.25)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-[border-color,box-shadow,transform] duration-200 ease-out hover:border-border-heavy hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(255,255,255,0.02)]"
-        />
-        {!ready ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="codex-glow-loop rounded-full border border-border-light bg-black/50 px-3 py-1 text-[11px] text-text-tertiary">
-              Preparing terminal...
-            </div>
-          </div>
-        ) : null}
+      {/* Terminal mount */}
+      <div className="flex-1 overflow-hidden p-1">
+        <div ref={mountRef} className="h-full w-full" />
       </div>
     </section>
   );
