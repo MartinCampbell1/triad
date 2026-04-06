@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
+import { parseStructuredDiffPatch } from "../lib/diff";
 import { onEvent } from "../lib/rpc";
 import { notifyMacOSRunOutcome, setMacOSDockBadgeLabel } from "../lib/tauri-macos";
-import type { StreamEvent } from "../lib/types";
+import type { StreamEvent, TerminalHostMetadata } from "../lib/types";
 import { useSessionStore } from "../stores/session-store";
 import { useUiStore } from "../stores/ui-store";
 
@@ -17,8 +18,10 @@ export function useStreamEvents() {
   const sessions = useSessionStore((state) => state.sessions);
   const appendStreamingText = useSessionStore((state) => state.appendStreamingText);
   const finalizeStreaming = useSessionStore((state) => state.finalizeStreaming);
-  const addMessage = useSessionStore((state) => state.addMessage);
+  const addTimelineItem = useSessionStore((state) => state.addTimelineItem);
+  const updateSessionTerminalHost = useSessionStore((state) => state.updateSessionTerminalHost);
   const upsertDiffFile = useUiStore((state) => state.upsertDiffFile);
+  const setDiffFiles = useUiStore((state) => state.setDiffFiles);
   const activeRunIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -26,12 +29,37 @@ export function useStreamEvents() {
       const sessionTitle =
         (activeSession?.id === event.session_id ? activeSession.title : sessions.find((session) => session.id === event.session_id)?.title) ??
         "Current session";
+      const currentSession =
+        activeSession?.id === event.session_id
+          ? activeSession
+          : sessions.find((session) => session.id === event.session_id) ?? null;
+      const currentTerminalHost = currentSession?.terminal_host ?? null;
+
+      const syncTerminalHost = (patch: Partial<TerminalHostMetadata>) => {
+        const terminalId = event.linked_terminal_id ?? event.terminal_id ?? currentTerminalHost?.terminal_id;
+        if (!terminalId) {
+          return;
+        }
+        updateSessionTerminalHost(event.session_id, {
+          ...currentTerminalHost,
+          ...patch,
+          terminal_id: terminalId,
+        });
+      };
 
       switch (event.type) {
         case "text_delta":
           if (event.run_id) {
             activeRunIdsRef.current.add(event.run_id);
             void setMacOSDockBadgeLabel(String(activeRunIdsRef.current.size));
+          }
+          if (event.linked_terminal_id || currentTerminalHost?.terminal_id) {
+            syncTerminalHost({
+              live: true,
+              linked_run_id: event.run_id ?? currentTerminalHost?.linked_run_id ?? null,
+              terminal_status: "ready",
+              transcript_mode: event.transcript_mode ?? currentTerminalHost?.transcript_mode ?? "partial",
+            });
           }
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
@@ -42,20 +70,22 @@ export function useStreamEvents() {
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
           }
-          addMessage(
+          addTimelineItem(
             {
               id: `tool_${Date.now()}`,
+              kind: "tool_call",
               session_id: activeSession.id,
-              role: "system",
-              content: `!tool:${JSON.stringify({
-                tool: event.tool ?? "tool",
-                input: event.input ?? {},
-                output: event.output,
-                status: event.status ?? "running",
-                provider: event.provider,
-              })}`,
+              ts: new Date().toISOString(),
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              run_id: event.run_id,
+              role: event.role,
+              tool: String(event.tool ?? "tool"),
+              input:
+                typeof event.input === "string" || (event.input && typeof event.input === "object")
+                  ? (event.input as Record<string, unknown> | string)
+                  : null,
+              output: event.output,
+              status: event.status ?? "running",
             },
             { count: false }
           );
@@ -78,20 +108,22 @@ export function useStreamEvents() {
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
           }
-          addMessage(
+          addTimelineItem(
             {
               id: `tool_result_${Date.now()}`,
+              kind: "tool_call",
               session_id: activeSession.id,
-              role: "system",
-              content: `!tool:${JSON.stringify({
-                tool: event.tool ?? "tool",
-                input: event.input ?? {},
-                output: event.output,
-                status: event.status ?? (event.success === false ? "failed" : "completed"),
-                provider: event.provider,
-              })}`,
+              ts: new Date().toISOString(),
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              run_id: event.run_id,
+              role: event.role,
+              tool: String(event.tool ?? "tool"),
+              input:
+                typeof event.input === "string" || (event.input && typeof event.input === "object")
+                  ? (event.input as Record<string, unknown> | string)
+                  : null,
+              output: event.output,
+              status: event.status ?? (event.success === false ? "failed" : "completed"),
             },
             { count: false }
           );
@@ -106,30 +138,64 @@ export function useStreamEvents() {
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
           }
-          addMessage(
+          addTimelineItem(
             {
               id: `finding_${Date.now()}`,
+              kind: "review_finding",
               session_id: activeSession.id,
-              role: "system",
-              content: `!finding:${String(event.severity ?? "P2")}|${String(event.file ?? "src/App.tsx")}|${String(event.title ?? "Finding")}|${String(event.explanation ?? "")}`,
+              ts: new Date().toISOString(),
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              run_id: event.run_id,
+              role: event.role,
+              severity: event.severity ?? "P2",
+              file: String(event.file ?? ""),
+              line: event.line,
+              line_range: event.line_range,
+              title: String(event.title ?? "Finding"),
+              explanation: String(event.explanation ?? ""),
             },
             { count: false }
           );
           break;
+        case "diff_snapshot": {
+          if (!activeSession || event.session_id !== activeSession.id) {
+            break;
+          }
+          const patch = String(event.patch ?? "");
+          const parsedFiles = parseStructuredDiffPatch(patch);
+          setDiffFiles(parsedFiles, { open: parsedFiles.length > 0 });
+          addTimelineItem(
+            {
+              id: `diff_${Date.now()}`,
+              kind: "diff_snapshot",
+              session_id: activeSession.id,
+              ts: new Date().toISOString(),
+              provider: event.provider,
+              run_id: event.run_id,
+              role: event.role,
+              patch,
+              diff_stat: event.diff_stat,
+            },
+            { count: false }
+          );
+          break;
+        }
         case "system":
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
           }
-          addMessage(
+          addTimelineItem(
             {
               id: `system_${Date.now()}`,
+              kind: "system_notice",
               session_id: activeSession.id,
-              role: "system",
-              content: String(event.content ?? ""),
+              ts: new Date().toISOString(),
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              run_id: event.run_id,
+              role: event.role,
+              level: "info",
+              title: event.title ? String(event.title) : undefined,
+              body: String(event.content ?? ""),
             },
             { count: false }
           );
@@ -140,6 +206,14 @@ export function useStreamEvents() {
             void setMacOSDockBadgeLabel(
               activeRunIdsRef.current.size > 0 ? String(activeRunIdsRef.current.size) : undefined
             );
+          }
+          if (event.linked_terminal_id || currentTerminalHost?.terminal_id) {
+            syncTerminalHost({
+              live: false,
+              linked_run_id: null,
+              terminal_status: event.terminal_status ?? "unavailable",
+              transcript_mode: event.transcript_mode ?? currentTerminalHost?.transcript_mode ?? "partial",
+            });
           }
           if (activeSession && event.session_id === activeSession.id) {
             finalizeStreaming(event.run_id);
@@ -157,6 +231,14 @@ export function useStreamEvents() {
               activeRunIdsRef.current.size > 0 ? String(activeRunIdsRef.current.size) : undefined
             );
           }
+          if (event.linked_terminal_id || currentTerminalHost?.terminal_id) {
+            syncTerminalHost({
+              live: false,
+              linked_run_id: null,
+              terminal_status: event.terminal_status ?? "unavailable",
+              transcript_mode: event.transcript_mode ?? currentTerminalHost?.transcript_mode ?? "partial",
+            });
+          }
           void notifyMacOSRunOutcome({
             title: sessionTitle,
             outcome: "failed",
@@ -167,21 +249,44 @@ export function useStreamEvents() {
             break;
           }
           finalizeStreaming(event.run_id, undefined, event.provider, event.role);
-          addMessage(
+          addTimelineItem(
             {
               id: `error_${Date.now()}`,
+              kind: "system_notice",
               session_id: activeSession.id,
-              role: "system",
-              content: event.error ?? "Run failed",
+              ts: new Date().toISOString(),
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              run_id: event.run_id,
+              role: event.role,
+              level: "error",
+              title: "Run failed",
+              body: event.error ?? "Run failed",
             },
             { count: false }
           );
+          break;
+        case "terminal_output":
+          if (event.terminal_kind === "provider" && event.session_id) {
+            syncTerminalHost({
+              live: true,
+              linked_run_id: event.run_id ?? currentTerminalHost?.linked_run_id ?? null,
+              terminal_status: "ready",
+              transcript_mode: event.transcript_mode ?? currentTerminalHost?.transcript_mode ?? "partial",
+            });
+          }
           break;
         default:
           break;
       }
     });
-  }, [activeSession?.id, activeSession?.title, addMessage, appendStreamingText, finalizeStreaming, sessions, upsertDiffFile]);
+  }, [
+    activeSession,
+    addTimelineItem,
+    appendStreamingText,
+    finalizeStreaming,
+    sessions,
+    setDiffFiles,
+    updateSessionTerminalHost,
+    upsertDiffFile,
+  ]);
 }

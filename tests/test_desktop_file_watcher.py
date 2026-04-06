@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,10 @@ import pytest
 from triad.desktop.bridge import DesktopRuntime
 from triad.desktop.event_merger import EventMerger
 from triad.desktop.file_watcher import ClaudeSessionWatcher
+
+
+def _current_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 @pytest.mark.asyncio
@@ -31,12 +36,12 @@ async def test_claude_session_watcher_emits_authoritative_assistant_messages(tmp
     watcher.watch_session("sess_live", str(project_dir))
     session_file.write_text(
         json.dumps(
-            {
-                "uuid": "assistant-1",
-                "timestamp": "2026-04-06T12:00:00Z",
-                "sessionId": "claude-session-1",
-                "message": {
-                    "role": "assistant",
+                {
+                    "uuid": "assistant-1",
+                    "timestamp": _current_timestamp(),
+                    "sessionId": "claude-session-1",
+                    "message": {
+                        "role": "assistant",
                     "content": [
                         {"type": "text", "text": "Clean answer from watcher."},
                     ],
@@ -74,12 +79,12 @@ async def test_claude_session_watcher_prefers_prompt_matching_file(tmp_path: Pat
     newer_file = storage_dir / "newer.jsonl"
     older_file.write_text(
         json.dumps(
-            {
-                "uuid": "assistant-older",
-                "timestamp": "2026-04-06T12:00:00Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "Correct prompt match."}],
+                {
+                    "uuid": "assistant-older",
+                    "timestamp": _current_timestamp(),
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Correct prompt match."}],
                 },
                 "lastPrompt": "Implement the critical fix",
             }
@@ -89,12 +94,12 @@ async def test_claude_session_watcher_prefers_prompt_matching_file(tmp_path: Pat
     )
     newer_file.write_text(
         json.dumps(
-            {
-                "uuid": "assistant-newer",
-                "timestamp": "2026-04-06T12:00:00Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "Wrong file."}],
+                {
+                    "uuid": "assistant-newer",
+                    "timestamp": _current_timestamp(),
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Wrong file."}],
                 },
                 "lastPrompt": "Something else",
             }
@@ -166,12 +171,20 @@ class _FakeClaudePTY:
         self.env = env
         self.started = False
         self.sent: list[str] = []
+        self.writes: list[bytes] = []
+        self.resizes: list[tuple[int, int]] = []
 
     async def start(self) -> None:
         self.started = True
 
     async def send(self, text: str) -> None:
         self.sent.append(text)
+
+    async def write(self, data: bytes) -> None:
+        self.writes.append(data)
+
+    async def resize(self, cols: int, rows: int) -> None:
+        self.resizes.append((cols, rows))
 
     async def stop(self) -> None:
         self.started = False
@@ -195,6 +208,19 @@ class _FakeWatcher:
         return None
 
 
+class _FakeClaudePTYStreaming(_FakeClaudePTY):
+    async def send(self, text: str) -> None:
+        await super().send(text)
+        await self.on_event(
+            {
+                "type": "text_delta",
+                "source": "pty",
+                "provider": "claude",
+                "delta": "partial terminal output",
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_runtime_tracks_claude_session_in_file_watcher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     runtime = DesktopRuntime()
@@ -214,5 +240,77 @@ async def test_runtime_tracks_claude_session_in_file_watcher(tmp_path: Path, mon
         assert runtime_session.pty is not None
         assert runtime_session.pty.started is True
         assert runtime_session.pty.sent
+    finally:
+        await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_exposes_terminal_host_metadata_for_interactive_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime = DesktopRuntime()
+    await runtime.initialize()
+    monkeypatch.setattr("triad.desktop.bridge.ClaudePTY", _FakeClaudePTYStreaming)
+    fake_watcher = _FakeWatcher()
+    runtime._file_watcher = fake_watcher
+    try:
+        await runtime.open_project(str(tmp_path))
+        session = await runtime.create_session(str(tmp_path), "solo", "claude", "Live shell")
+
+        await runtime.send_session_message(session["id"], "Continue in terminal", provider="claude")
+        manager = await runtime.get_terminal_manager()
+        linked_terminal = manager.get_session(f"live_{session['id']}")
+        hydrated = await runtime.get_session(session["id"])
+
+        assert linked_terminal is not None
+        assert linked_terminal.kind == "provider"
+        assert linked_terminal.linked_session_id == session["id"]
+        assert linked_terminal.snapshot().endswith("partial terminal output")
+        assert hydrated["session"]["terminal_host"]["terminal_id"] == linked_terminal.terminal_id
+        assert hydrated["session"]["terminal_host"]["live"] is True
+        assert hydrated["session"]["terminal_host"]["transcript_mode"] == "partial"
+
+        await runtime.stop_session(session["id"])
+        after_stop = await runtime.get_session(session["id"])
+
+        assert after_stop["session"]["terminal_host"]["live"] is False
+        assert after_stop["session"]["terminal_host"]["terminal_status"] == "unavailable"
+    finally:
+        await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_routes_provider_terminal_input_and_resize_to_claude_pty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime = DesktopRuntime()
+    await runtime.initialize()
+    monkeypatch.setattr("triad.desktop.bridge.ClaudePTY", _FakeClaudePTY)
+    runtime._file_watcher = _FakeWatcher()
+    try:
+        await runtime.open_project(str(tmp_path))
+        session = await runtime.create_session(str(tmp_path), "solo", "claude", "Interactive shell")
+        await runtime.send_session_message(session["id"], "Open the live shell", provider="claude")
+
+        manager = await runtime.get_terminal_manager()
+        linked_terminal_id = f"live_{session['id']}"
+        linked_terminal = manager.get_session(linked_terminal_id)
+        assert linked_terminal is not None
+
+        input_result = await runtime.handle_terminal_input(linked_terminal_id, b"pwd\n")
+        resize_result = await runtime.handle_terminal_resize(linked_terminal_id, 132, 36)
+        runtime_session = runtime._sessions[session["id"]]
+
+        assert input_result["status"] == "ok"
+        assert input_result["source"] == "provider"
+        assert resize_result["status"] == "ok"
+        assert resize_result["source"] == "provider"
+        assert runtime_session.pty is not None
+        assert runtime_session.pty.writes == [b"pwd\n"]
+        assert runtime_session.pty.resizes == [(132, 36)]
+        assert runtime_session.active_run_id
+        assert manager.get_session(linked_terminal_id).linked_run_id == runtime_session.active_run_id
     finally:
         await runtime.shutdown()

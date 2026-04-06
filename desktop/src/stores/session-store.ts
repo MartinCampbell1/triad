@@ -1,13 +1,28 @@
 import { create } from "zustand";
+import { parseStructuredDiffPatch } from "../lib/diff";
 import { rpc } from "../lib/rpc";
-import type { Message, ProviderId, Session, StreamingRun } from "../lib/types";
+import type {
+  Attachment,
+  DiffSnapshotTimelineItem,
+  Message,
+  ProviderId,
+  Session,
+  SessionCompareResult,
+  SessionReplay,
+  StreamingRun,
+  TerminalHostMetadata,
+  TimelineItem,
+} from "../lib/types";
 import { useProjectStore } from "./project-store";
+import { useUiStore } from "./ui-store";
 
 interface SessionState {
   sessions: Session[];
   activeSession: Session | null;
-  messages: Message[];
+  timeline: TimelineItem[];
   streamingRuns: StreamingRun[];
+  compareResult: SessionCompareResult | null;
+  replay: SessionReplay | null;
   loading: boolean;
   loadSessions: (projectPath: string) => Promise<void>;
   createSession: (
@@ -22,10 +37,13 @@ interface SessionState {
   ) => Promise<{ status: string; session_id: string; format: string; path: string }>;
   importSession: (
     path: string
-  ) => Promise<{ session: Session; messages: Message[]; project?: { path: string; name: string; git_root: string; last_opened_at?: string }; path: string }>;
+  ) => Promise<{ session: Session; timeline: TimelineItem[]; project?: { path: string; name: string; git_root: string; last_opened_at?: string }; path: string }>;
   hydrateSession: (sessionId: string) => Promise<void>;
+  loadCompare: (leftSessionId: string, rightSessionId: string) => Promise<SessionCompareResult>;
+  loadReplay: (sessionId: string) => Promise<SessionReplay>;
+  clearCompareReplay: () => void;
   setActiveSession: (session: Session | null) => void;
-  addMessage: (message: Message, options?: { count?: boolean }) => void;
+  addTimelineItem: (item: TimelineItem, options?: { count?: boolean }) => void;
   appendStreamingText: (runId: string | undefined, delta: string, provider?: Session["provider"], role?: string) => void;
   finalizeStreaming: (
     runId?: string,
@@ -35,6 +53,7 @@ interface SessionState {
   ) => void;
   clearStreamingText: (runId?: string) => void;
   setSessions: (sessions: Session[]) => void;
+  updateSessionTerminalHost: (sessionId: string, terminalHost: TerminalHostMetadata | null) => void;
 }
 
 function makeMessageId(prefix: string) {
@@ -52,11 +71,94 @@ function normalizeRunId(runId?: string) {
   return runId?.trim() || "__default__";
 }
 
+function shouldCountTimelineItem(item: TimelineItem) {
+  return item.kind === "user_message" || item.kind === "assistant_message";
+}
+
+function attachTerminalHost<T extends TimelineItem | Message>(item: T, terminalHost?: TerminalHostMetadata | null): T {
+  if (item.terminal_host || !terminalHost) {
+    return item;
+  }
+  return {
+    ...item,
+    terminal_host: terminalHost,
+  };
+}
+
+function messageToTimelineItem(message: Message, terminalHost?: TerminalHostMetadata | null): TimelineItem {
+  if (message.role === "user") {
+    return attachTerminalHost({
+      id: message.id,
+      kind: "user_message",
+      session_id: message.session_id,
+      ts: message.timestamp,
+      provider: message.provider,
+      text: message.content,
+      attachments: message.attachments,
+      terminal_host: message.terminal_host ?? terminalHost ?? undefined,
+    }, message.terminal_host ?? terminalHost ?? undefined);
+  }
+
+  if (message.role === "assistant") {
+    return attachTerminalHost({
+      id: message.id,
+      kind: "assistant_message",
+      session_id: message.session_id,
+      ts: message.timestamp,
+      provider: message.provider,
+      run_id: message.streaming ? message.id : undefined,
+      role: message.agent_role,
+      text: message.content,
+      status: message.streaming ? "streaming" : "done",
+      terminal_host: message.terminal_host ?? terminalHost ?? undefined,
+    }, message.terminal_host ?? terminalHost ?? undefined);
+  }
+
+  return attachTerminalHost({
+    id: message.id,
+    kind: "system_notice",
+    session_id: message.session_id,
+    ts: message.timestamp,
+    provider: message.provider,
+    level: "info",
+    body: message.content,
+    terminal_host: message.terminal_host ?? terminalHost ?? undefined,
+  }, message.terminal_host ?? terminalHost ?? undefined);
+}
+
+function resolveTimeline(
+  payload: { timeline?: TimelineItem[]; messages?: Message[] },
+  session?: Pick<Session, "terminal_host"> | null
+) {
+  const terminalHost = session?.terminal_host ?? null;
+  if (Array.isArray(payload.timeline)) {
+    return payload.timeline.map((item) => attachTerminalHost(item, item.terminal_host ?? terminalHost ?? undefined));
+  }
+  return Array.isArray(payload.messages)
+    ? payload.messages.map((message) => messageToTimelineItem(message, terminalHost))
+    : [];
+}
+
+function syncDiffPreview(timeline: TimelineItem[]) {
+  const latestSnapshot = [...timeline]
+    .reverse()
+    .find((item): item is DiffSnapshotTimelineItem => item.kind === "diff_snapshot" && Boolean(item.patch.trim()));
+
+  if (!latestSnapshot) {
+    useUiStore.getState().clearDiffFiles();
+    return;
+  }
+
+  useUiStore.getState().setDiffFiles(parseStructuredDiffPatch(latestSnapshot.patch), { open: false });
+}
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   activeSession: null,
-  messages: [],
+  timeline: [],
   streamingRuns: [],
+  compareResult: null,
+  replay: null,
   loading: false,
   loadSessions: async (projectPath: string) => {
     set({ loading: true });
@@ -68,7 +170,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (shouldSwitch && result.sessions.length > 0) {
         await get().hydrateSession(result.sessions[0].id);
       } else if (shouldSwitch) {
-        set({ activeSession: null, messages: [], streamingRuns: [] });
+        set({ activeSession: null, timeline: [], streamingRuns: [], compareResult: null, replay: null });
       }
     } catch {
       set({ loading: false });
@@ -81,11 +183,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       provider: options?.provider,
       title: options?.title,
     });
+    useUiStore.getState().clearDiffFiles();
     set((state) => ({
       sessions: [session, ...state.sessions],
       activeSession: session,
-      messages: [],
+      timeline: [],
       streamingRuns: [],
+      compareResult: null,
+      replay: null,
     }));
     return session;
   },
@@ -94,11 +199,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       session_id: sessionId,
       title: options?.title,
     });
+    useUiStore.getState().clearDiffFiles();
     set((state) => ({
       sessions: [session, ...state.sessions],
       activeSession: session,
-      messages: [],
+      timeline: [],
       streamingRuns: [],
+      compareResult: null,
+      replay: null,
     }));
     await get().hydrateSession(session.id);
     return session;
@@ -112,7 +220,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   importSession: async (path) => {
     const result = await rpc<{
       session: Session;
-      messages: Message[];
+      timeline?: TimelineItem[];
+      messages?: Message[];
       project?: { path: string; name: string; git_root: string; last_opened_at?: string };
       path: string;
     }>("session.import", {
@@ -129,60 +238,88 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const nextSessions = state.sessions.some((session) => session.id === result.session.id)
         ? state.sessions.map((session) => (session.id === result.session.id ? result.session : session))
         : [result.session, ...state.sessions];
+      const timeline = resolveTimeline(result, result.session);
+      syncDiffPreview(timeline);
       return {
         sessions: nextSessions,
         activeSession: result.session,
-        messages: result.messages,
+        timeline,
         streamingRuns: [],
+        compareResult: null,
+        replay: null,
       };
     });
-    return result;
+    return { ...result, timeline: resolveTimeline(result, result.session) };
   },
   hydrateSession: async (sessionId: string) => {
-    const result = await rpc<{ session: Session; messages: Message[] }>("session.get", {
+    const result = await rpc<{ session: Session; timeline?: TimelineItem[]; messages?: Message[] }>("session.get", {
       session_id: sessionId,
     });
     const existingSessions = get().sessions;
     const nextSessions = existingSessions.some((session) => session.id === result.session.id)
       ? existingSessions.map((session) => (session.id === result.session.id ? result.session : session))
       : [result.session, ...existingSessions];
+    const timeline = resolveTimeline(result, result.session);
+    syncDiffPreview(timeline);
     set({
       activeSession: result.session,
-      messages: result.messages,
+      timeline,
       streamingRuns: [],
+      compareResult: null,
+      replay: null,
       sessions: nextSessions,
     });
   },
+  loadCompare: async (leftSessionId, rightSessionId) => {
+    const result = await rpc<SessionCompareResult>("session.compare", {
+      left_session_id: leftSessionId,
+      right_session_id: rightSessionId,
+    });
+    set({ compareResult: result });
+    return result;
+  },
+  loadReplay: async (sessionId) => {
+    const result = await rpc<SessionReplay>("session.replay", {
+      session_id: sessionId,
+    });
+    set({ replay: result });
+    return result;
+  },
+  clearCompareReplay: () => set({ compareResult: null, replay: null }),
   setActiveSession: (session) => {
     if (!session) {
-      set({ activeSession: null, messages: [], streamingRuns: [] });
+      useUiStore.getState().clearDiffFiles();
+      set({ activeSession: null, timeline: [], streamingRuns: [], compareResult: null, replay: null });
       return;
     }
 
     const cached = get().sessions.find((item) => item.id === session.id);
+    useUiStore.getState().clearDiffFiles();
     set({
       activeSession: cached ?? session,
-      messages: [],
+      timeline: [],
       streamingRuns: [],
+      compareResult: null,
+      replay: null,
     });
     void get().hydrateSession(session.id);
   },
-  addMessage: (message, options) => {
-    const count = options?.count ?? true;
+  addTimelineItem: (item, options) => {
+    const count = options?.count ?? shouldCountTimelineItem(item);
     set((state) => ({
-      messages: [...state.messages, message],
+      timeline: [...state.timeline, item],
       activeSession: state.activeSession
         ? {
             ...state.activeSession,
-            updated_at: message.timestamp,
+            updated_at: item.ts,
             message_count: count ? state.activeSession.message_count + 1 : state.activeSession.message_count,
           }
         : state.activeSession,
       sessions: state.sessions.map((session) =>
-        session.id === message.session_id
+        session.id === item.session_id
           ? {
               ...session,
-              updated_at: message.timestamp,
+              updated_at: item.ts,
               message_count: count ? session.message_count + 1 : session.message_count,
             }
           : session
@@ -240,7 +377,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             ]
           : [];
       const streams = targets.length > 0 ? targets : fallbackTarget;
-      const messages: Message[] = [];
+      const items: TimelineItem[] = [];
       if (activeSession) {
         for (const stream of streams) {
           const text = (
@@ -249,14 +386,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           if (!text) {
             continue;
           }
-          messages.push({
+          items.push({
             id: makeMessageId("msg"),
+            kind: "assistant_message",
             session_id: activeSession.id,
-            role: "assistant",
-            content: text,
+            ts: nowIso(),
             provider: provider ?? stream.provider ?? activeSession.provider,
-            agent_role: role ?? stream.role ?? undefined,
-            timestamp: nowIso(),
+            role: role ?? stream.role ?? undefined,
+            text,
+            status: "done",
           });
         }
       }
@@ -265,20 +403,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ? state.streamingRuns.filter((stream) => stream.run_id !== normalizedRunId)
         : [];
 
-      if (!messages.length) {
+      if (!items.length) {
         return { streamingRuns: remainingRuns };
       }
 
-      const latestTimestamp = messages[messages.length - 1]?.timestamp ?? nowIso();
+      const latestTimestamp = items[items.length - 1]?.ts ?? nowIso();
       return {
         streamingRuns: remainingRuns,
-        messages: [...state.messages, ...messages],
+        timeline: [...state.timeline, ...items],
         sessions: state.sessions.map((session) =>
           session.id === activeSession?.id
             ? {
                 ...session,
                 updated_at: latestTimestamp,
-                message_count: session.message_count + messages.length,
+                message_count: session.message_count + items.length,
               }
             : session
         ),
@@ -286,7 +424,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ? {
               ...activeSession,
               updated_at: latestTimestamp,
-              message_count: activeSession.message_count + messages.length,
+              message_count: activeSession.message_count + items.length,
             }
           : activeSession,
       };
@@ -299,17 +437,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         : [],
     })),
   setSessions: (sessions) => set({ sessions }),
+  updateSessionTerminalHost: (sessionId, terminalHost) =>
+    set((state) => ({
+      activeSession:
+        state.activeSession?.id === sessionId
+          ? {
+              ...state.activeSession,
+              terminal_host: terminalHost,
+            }
+          : state.activeSession,
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              terminal_host: terminalHost,
+            }
+          : session
+      ),
+    })),
 }));
 
-export function appendUserMessage(sessionId: string, content: string, provider?: Session["provider"]) {
-  const message: Message = {
+export function appendUserMessage(
+  sessionId: string,
+  content: string,
+  provider?: Session["provider"],
+  attachments?: Attachment[]
+) {
+  const item: TimelineItem = {
     id: makeMessageId("msg"),
+    kind: "user_message",
     session_id: sessionId,
-    role: "user",
-    content,
+    ts: new Date().toISOString(),
     provider,
-    timestamp: new Date().toISOString(),
+    text: content,
+    attachments,
   };
-  useSessionStore.getState().addMessage(message);
-  return message;
+  useSessionStore.getState().addTimelineItem(item);
+  return item;
 }

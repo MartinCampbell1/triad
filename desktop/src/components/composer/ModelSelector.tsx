@@ -1,38 +1,43 @@
 import { useProviderStore } from "../../stores/provider-store";
-import type { ProviderId } from "../../lib/types";
-
-const MODELS: Array<{ id: string; label: string; provider: ProviderId }> = [
-  { id: "gpt-5.4", label: "GPT-5.4", provider: "codex" },
-  { id: "claude-opus-4-6", label: "Claude Opus 4.6", provider: "claude" },
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "claude" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "gemini" },
-];
 
 export function ModelSelector() {
-  const { activeModel, setActiveModel, setActiveProvider } = useProviderStore();
+  const { activeModel, models, setActiveModel, loadingRuntimeOptions } = useProviderStore();
+  const currentModel = models.find((model) => model.id === activeModel) ?? models[0] ?? null;
+
+  if (loadingRuntimeOptions && models.length === 0) {
+    return (
+      <div className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-tertiary)]">
+        <span>Loading models...</span>
+      </div>
+    );
+  }
+
+  if (!loadingRuntimeOptions && models.length === 0) {
+    return (
+      <div className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-tertiary)]">
+        <span>Models unavailable</span>
+      </div>
+    );
+  }
 
   return (
-    <label className="relative inline-flex cursor-pointer items-center gap-1 text-[13px] text-text-secondary transition-colors hover:text-text-primary">
-      <span>{MODELS.find((model) => model.id === activeModel)?.label ?? activeModel}</span>
+    <label className="relative inline-flex cursor-pointer items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)] transition-colors duration-150 hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--color-text-primary)]">
+      <span>{currentModel?.label ?? "Model"}</span>
       <select
-        value={activeModel}
+        value={currentModel?.id ?? activeModel}
         onChange={(event) => {
-          const model = MODELS.find((item) => item.id === event.target.value);
-          if (model) {
-            setActiveModel(model.id);
-            setActiveProvider(model.provider);
-          }
+          setActiveModel(event.target.value);
         }}
         className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         aria-label="Model selector"
       >
-        {MODELS.map((model) => (
+        {models.map((model) => (
           <option key={model.id} value={model.id}>
             {model.label}
           </option>
         ))}
       </select>
-      <svg width="8" height="8" viewBox="0 0 16 16" fill="none" className="text-text-tertiary opacity-60">
+      <svg width="8" height="8" viewBox="0 0 16 16" fill="none" className="text-[var(--color-text-tertiary)] opacity-60">
         <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </label>

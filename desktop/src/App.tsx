@@ -1,14 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Composer } from "./components/composer/Composer";
 import { BridgeStatusBanner } from "./components/shared/BridgeStatusBanner";
-import { CommitDialog } from "./components/shared/CommitDialog";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { TerminalDrawer } from "./components/terminal/TerminalDrawer";
 import { Transcript } from "./components/transcript/Transcript";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useStreamEvents } from "./hooks/useStreamEvents";
-import { onBridgeStatus, rpc, startBridge, stopBridge } from "./lib/rpc";
+import { onBridgeStatus, reconnectBridge, rpc, startBridge, stopBridge } from "./lib/rpc";
 import { ensureMacOSNotificationPermissionPromptOnce, setMacOSDockBadgeLabel } from "./lib/tauri-macos";
 import { useBridgeStore } from "./stores/bridge-store";
 import { useProjectStore } from "./stores/project-store";
@@ -16,9 +15,19 @@ import { useProviderStore } from "./stores/provider-store";
 import { useSessionStore } from "./stores/session-store";
 import { useUiStore } from "./stores/ui-store";
 
+const SettingsLayout = lazy(async () => {
+  const module = await import("./components/settings/SettingsLayout");
+  return { default: module.SettingsLayout };
+});
+
 const DiffPanel = lazy(async () => {
   const module = await import("./components/diff/DiffPanel");
   return { default: module.DiffPanel };
+});
+
+const SessionCompareReplayPanel = lazy(async () => {
+  const module = await import("./components/session/SessionCompareReplayPanel");
+  return { default: module.SessionCompareReplayPanel };
 });
 
 const CommandPalette = lazy(async () => {
@@ -26,12 +35,40 @@ const CommandPalette = lazy(async () => {
   return { default: module.CommandPalette };
 });
 
+function BootState({
+  title,
+  detail,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  detail: string;
+  actionLabel: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-[var(--color-bg-surface)] px-6 text-[var(--color-text-primary)]">
+      <div className="w-full max-w-[520px] rounded-[20px] border border-[var(--color-border)] bg-[rgba(255,255,255,0.02)] p-6 text-center">
+        <div className="text-[14px] font-medium">{title}</div>
+        <div className="mt-2 text-[13px] leading-[1.6] text-[var(--color-text-tertiary)]">{detail}</div>
+        {onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            className="mt-5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-[12px] text-[var(--color-text-secondary)] transition-colors hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--color-text-primary)]"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
-  const loadProjects = useProjectStore((state) => state.loadProjects);
   const activeProject = useProjectStore((state) => state.activeProject);
   const setProjects = useProjectStore((state) => state.setProjects);
   const setActiveProject = useProjectStore((state) => state.setActiveProject);
-  const loadSessions = useSessionStore((state) => state.loadSessions);
   const activeSession = useSessionStore((state) => state.activeSession);
   const createSession = useSessionStore((state) => state.createSession);
   const forkSession = useSessionStore((state) => state.forkSession);
@@ -43,14 +80,19 @@ export function App() {
   const setActiveProvider = useProviderStore((state) => state.setActiveProvider);
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
   const diffPanelOpen = useUiStore((state) => state.diffPanelOpen);
+  const compareReplayPanelOpen = useUiStore((state) => state.compareReplayPanelOpen);
   const diffFiles = useUiStore((state) => state.diffFiles);
   const toggleDrawer = useUiStore((state) => state.toggleDrawer);
   const toggleDiffPanel = useUiStore((state) => state.toggleDiffPanel);
+  const setCompareReplayPanel = useUiStore((state) => state.setCompareReplayPanel);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const clearDiffFiles = useUiStore((state) => state.clearDiffFiles);
+  const settingsOpen = useUiStore((state) => state.settingsOpen);
+  const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
   const setBridgeStatus = useBridgeStore((state) => state.setStatus);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [commitOpen, setCommitOpen] = useState(false);
+  const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState<string | null>(null);
 
   useStreamEvents();
 
@@ -129,8 +171,10 @@ export function App() {
     let disposed = false;
 
     void (async () => {
-      await startBridge();
       try {
+        setBooting(true);
+        setBootError(null);
+        await startBridge();
         const state = await rpc<{
           projects: Array<{
             path: string;
@@ -172,12 +216,15 @@ export function App() {
         if (targetSession) {
           await hydrateSession(targetSession.id);
         }
-      } catch {
+      } catch (error) {
         if (disposed) {
           return;
         }
-        await loadProjects();
-        await loadSessions("");
+        setBootError(error instanceof Error ? error.message : "Python bridge failed to start.");
+      } finally {
+        if (!disposed) {
+          setBooting(false);
+        }
       }
     })();
 
@@ -185,7 +232,7 @@ export function App() {
       disposed = true;
       void stopBridge();
     };
-  }, [hydrateSession, loadProjects, loadSessions, setActiveProject, setProjects, setSessions]);
+  }, [hydrateSession, setActiveProject, setProjects, setSessions]);
 
   useEffect(() => {
     if (!activeSession) {
@@ -210,6 +257,24 @@ export function App() {
             return;
           }
           void createSession(activeProject.path, "solo");
+        },
+      },
+      {
+        id: "open-session-compare",
+        label: "Open Session Compare",
+        description: activeSession ? `Compare ${activeSession.title} with another session` : "No active session",
+        keywords: ["compare", "session", "replay", "timeline"],
+        action: () => {
+          setCompareReplayPanel(true, { tab: "compare" });
+        },
+      },
+      {
+        id: "open-session-replay",
+        label: "Open Session Replay",
+        description: activeSession ? `Replay the timeline for ${activeSession.title}` : "No active session",
+        keywords: ["replay", "session", "timeline", "scrub"],
+        action: () => {
+          setCompareReplayPanel(true, { tab: "replay" });
         },
       },
       {
@@ -292,6 +357,7 @@ export function App() {
       activeSession,
       clearDiffFiles,
       createSession,
+      setCompareReplayPanel,
       diffFiles.length,
       exportCurrentSession,
       forkCurrentSession,
@@ -303,19 +369,97 @@ export function App() {
     ]
   );
 
+  if (settingsOpen) {
+    return (
+      <Suspense fallback={<div className="flex h-full w-full bg-[var(--color-bg-surface)]" />}>
+        <SettingsLayout onBack={() => setSettingsOpen(false)} />
+      </Suspense>
+    );
+  }
+
+  if (booting && !activeProject && !activeSession) {
+    return (
+      <BootState
+        title="Starting bridge"
+        detail="Launching the Python sidecar and loading the current workspace."
+        actionLabel="Starting"
+      />
+    );
+  }
+
+  if (bootError && !activeProject && !activeSession) {
+    return (
+      <BootState
+        title="Bridge unavailable"
+        detail={bootError}
+        actionLabel="Retry"
+        onAction={() => {
+          setBooting(true);
+          setBootError(null);
+          void reconnectBridge()
+            .then(async () => {
+              const state = await rpc<{
+                projects: Array<{
+                  path: string;
+                  name: string;
+                  git_root: string;
+                  last_opened_at?: string;
+                }>;
+                sessions: Array<{
+                  id: string;
+                  project_path: string;
+                  title: string;
+                  mode: "solo" | "critic" | "brainstorm" | "delegate";
+                  status: "active" | "running" | "paused" | "completed" | "failed";
+                  created_at: string;
+                  updated_at: string;
+                  message_count: number;
+                  provider?: "claude" | "codex" | "gemini";
+                }>;
+                last_project: string | null;
+                last_session_id: string | null;
+              }>("app.get_state");
+              setProjects(state.projects);
+              setSessions(state.sessions);
+              const targetProject =
+                state.projects.find((project) => project.path === state.last_project) ?? state.projects[0] ?? null;
+              setActiveProject(targetProject);
+              const targetSession =
+                state.sessions.find((session) => session.id === state.last_session_id) ??
+                state.sessions.find((session) => session.project_path === targetProject?.path) ??
+                state.sessions[0];
+              if (targetSession) {
+                await hydrateSession(targetSession.id);
+              }
+            })
+            .catch((error) => {
+              setBootError(error instanceof Error ? error.message : "Python bridge failed to start.");
+            })
+            .finally(() => {
+              setBooting(false);
+            });
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="flex h-full w-full overflow-hidden bg-[var(--color-bg-surface)] text-text-primary">
+    <div className="flex h-full w-full overflow-hidden bg-[var(--color-bg-surface)] text-[var(--color-text-primary)]">
       {!sidebarCollapsed ? <Sidebar /> : null}
       <div className="flex min-w-0 flex-1 flex-col">
-        <BridgeStatusBanner />
         <TitleBar />
+        <BridgeStatusBanner />
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
             <Transcript />
             <Composer />
           </div>
-          {diffPanelOpen ? (
-            <Suspense fallback={<div className="w-[44%] min-w-[360px] border-l border-[rgba(255,255,255,0.06)] bg-[var(--color-bg-editor)]" />}>
+          {compareReplayPanelOpen ? (
+            <Suspense fallback={<div className="w-[44%] min-w-[360px] border-l border-[var(--color-border)] bg-[var(--color-bg-editor)]" />}>
+              <SessionCompareReplayPanel />
+            </Suspense>
+          ) : diffPanelOpen ? (
+            <Suspense fallback={<div className="w-[44%] min-w-[360px] border-l border-[var(--color-border)] bg-[var(--color-bg-editor)]" />}>
               <DiffPanel files={diffFiles} />
             </Suspense>
           ) : null}
@@ -327,7 +471,6 @@ export function App() {
           <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
         </Suspense>
       ) : null}
-      <CommitDialog open={commitOpen} onClose={() => setCommitOpen(false)} />
     </div>
   );
 }

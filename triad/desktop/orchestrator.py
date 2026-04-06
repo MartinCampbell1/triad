@@ -18,6 +18,13 @@ from triad.core.providers.base import is_rate_limited
 from triad.core.repo_artifacts import capture_repo_artifacts
 from triad.core.worktrees import WorktreeManager
 
+from .services.provider_streams import ProviderStreamRelay
+from .services.run_lifecycle import (
+    RunLifecycleContext,
+    build_run_completed_event,
+    build_run_failed_event,
+    build_run_started_event,
+)
 
 UiEventHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -60,12 +67,14 @@ class Orchestrator:
         account_manager: AccountManager | None = None,
         adapter_factory: Callable[[str], Any] | None = None,
         worktree_manager: WorktreeManager | None = None,
+        use_critic_worktrees: bool = True,
         use_delegate_worktrees: bool = True,
     ) -> None:
         self.on_event = on_event
         self._adapter_factory = adapter_factory or get_adapter
         self._config = load_config(get_default_config_path())
         self._worktree_manager = worktree_manager or WorktreeManager(self._config.worktrees_dir)
+        self._use_critic_worktrees = use_critic_worktrees
         self._use_delegate_worktrees = use_delegate_worktrees
         if account_manager is not None:
             self._account_mgr = account_manager
@@ -90,8 +99,21 @@ class Orchestrator:
     ) -> list[CriticRound]:
         """Run a writer/critic loop and stream UI events for each phase."""
         rounds: list[CriticRound] = []
+        critic_worktree: Path | None = None
+        critic_workdir = workdir
 
         try:
+            if self._use_critic_worktrees:
+                if not self._is_git_repo(workdir):
+                    raise RuntimeError(
+                        f"Critic mode requires a git repository so it can use an isolated worktree: {workdir}"
+                    )
+                critic_worktree = self._worktree_manager.create(
+                    repo_path=workdir,
+                    name=f"desktop-critic-{session_id}",
+                )
+                critic_workdir = critic_worktree
+
             for round_number in range(1, max_rounds + 1):
                 round_run_id = f"{session_id}:critic:{round_number}"
                 await self.on_event(
@@ -109,7 +131,7 @@ class Orchestrator:
                     session_id=session_id,
                     provider=writer_provider,
                     prompt=writer_prompt,
-                    workdir=workdir,
+                    workdir=critic_workdir,
                     role="writer",
                     model=writer_model,
                     policy=ExecutionPolicy.writer(),
@@ -117,7 +139,19 @@ class Orchestrator:
                     timeout=self._config.delegate_timeout,
                 )
 
-                repo_state = capture_repo_artifacts(workdir)
+                repo_state = capture_repo_artifacts(critic_workdir)
+                if repo_state.get("diff_patch") or repo_state.get("diff_stat"):
+                    await self.on_event(
+                        {
+                            "session_id": session_id,
+                            "run_id": round_run_id,
+                            "type": "diff_snapshot",
+                            "provider": writer_provider,
+                            "role": "writer",
+                            "patch": repo_state.get("diff_patch", ""),
+                            "diff_stat": repo_state.get("diff_stat", ""),
+                        }
+                    )
                 critic_prompt = self._build_critic_prompt(
                     task=prompt,
                     writer_output=writer_output,
@@ -127,7 +161,7 @@ class Orchestrator:
                     session_id=session_id,
                     provider=critic_provider,
                     prompt=critic_prompt,
-                    workdir=workdir,
+                    workdir=critic_workdir,
                     role="critic",
                     model=critic_model,
                     policy=ExecutionPolicy.critic(),
@@ -203,6 +237,10 @@ class Orchestrator:
                     "error": str(exc),
                 }
             )
+        finally:
+            if critic_worktree is not None:
+                with contextlib.suppress(Exception):
+                    self._worktree_manager.remove(critic_worktree)
 
         return rounds
 
@@ -436,81 +474,89 @@ class Orchestrator:
             raise RuntimeError(f"No available {provider} accounts")
 
         await self.on_event(
-            {
-                "session_id": session_id,
-                "run_id": run_id,
-                "type": "system",
-                "provider": provider,
-                "content": f"{provider.title()} {role} is running",
-            }
+            build_run_started_event(
+                RunLifecycleContext(
+                    session_id=session_id,
+                    run_id=run_id,
+                    provider=provider,
+                    role=role,
+                    policy_role=policy.role if policy else None,
+                    sandbox=policy.sandbox if policy else None,
+                    workdir=workdir,
+                )
+            )
         )
 
-        chunks: list[str] = []
-        errors: list[str] = []
-        returncode: int | None = None
-
-        async for event in adapter.execute_stream(
-            profile=profile,
-            prompt=prompt,
-            workdir=workdir,
-            model=model,
-            policy=policy,
-            timeout=timeout or self._config.delegate_timeout,
-        ):
-            if event.kind == "text" and event.text:
-                chunks.append(event.text)
-                if stream:
-                    await self.on_event(
-                        {
-                            "session_id": session_id,
-                            "run_id": run_id,
-                            "type": "text_delta",
-                            "provider": provider,
-                            "role": role,
-                            "delta": event.text,
-                        }
-                    )
-            elif event.kind == "tool_use":
-                payload = event.data or {}
-                await self.on_event(
-                    {
-                        "session_id": session_id,
-                        "run_id": run_id,
-                        "type": "tool_use",
-                        "provider": provider,
-                        "role": role,
-                        **payload,
-                    }
+        relay = ProviderStreamRelay(
+            session_id=session_id,
+            provider=provider,
+            run_id=run_id,
+            role=role,
+            on_event=self.on_event,
+            stream_text=stream,
+        )
+        try:
+            outcome = await relay.consume(
+                adapter.execute_stream(
+                    profile=profile,
+                    prompt=prompt,
+                    workdir=workdir,
+                    model=model,
+                    policy=policy,
+                    timeout=timeout or self._config.delegate_timeout,
                 )
-            elif event.kind == "tool_result":
-                payload = event.data or {}
-                await self.on_event(
-                    {
-                        "session_id": session_id,
-                        "run_id": run_id,
-                        "type": "tool_result",
-                        "provider": provider,
-                        "role": role,
-                        **payload,
-                    }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self.on_event(
+                build_run_failed_event(
+                    RunLifecycleContext(
+                        session_id=session_id,
+                        run_id=run_id,
+                        provider=provider,
+                        role=role,
+                        policy_role=policy.role if policy else None,
+                        sandbox=policy.sandbox if policy else None,
+                        workdir=workdir,
+                    ),
+                    error=str(exc),
+                    stdout="",
+                    stderr="",
+                    returncode=None,
+                    timed_out=False,
+                    rate_limited=False,
                 )
-            elif event.kind == "error" and event.text:
-                errors.append(event.text)
-            elif event.kind == "done":
-                payload = event.data or {}
-                raw_returncode = payload.get("returncode")
-                if isinstance(raw_returncode, int):
-                    returncode = raw_returncode
+            )
+            raise
 
-        combined_error = "\n".join(part for part in errors if part).strip()
-        if combined_error or returncode not in (None, 0):
-            error_text = combined_error or f"{provider} exited with code {returncode}"
+        if outcome.error_text or outcome.returncode not in (None, 0):
+            error_text = outcome.error_text or f"{provider} exited with code {outcome.returncode}"
             if is_rate_limited(error_text):
                 self._account_mgr.mark_rate_limited(provider, profile.name)
+            await self.on_event(
+                build_run_failed_event(
+                    RunLifecycleContext(
+                        session_id=session_id,
+                        run_id=run_id,
+                        provider=provider,
+                        role=role,
+                        policy_role=policy.role if policy else None,
+                        sandbox=policy.sandbox if policy else None,
+                        workdir=workdir,
+                    ),
+                    error=error_text,
+                    stdout=outcome.output,
+                    stderr=outcome.stderr,
+                    returncode=outcome.returncode,
+                    timed_out=outcome.timed_out,
+                    rate_limited=outcome.rate_limited or is_rate_limited(error_text),
+                )
+            )
             raise RuntimeError(error_text)
 
         self._account_mgr.mark_success(provider, profile.name)
-        output = "\n".join(part for part in chunks if part).strip()
+        output = outcome.output
         if output:
             await self.on_event(
                 {
@@ -520,8 +566,28 @@ class Orchestrator:
                     "provider": provider,
                     "role": role,
                     "content": output,
+                    "stdout": outcome.output,
+                    "stderr": outcome.stderr,
                 }
             )
+        await self.on_event(
+            build_run_completed_event(
+                RunLifecycleContext(
+                    session_id=session_id,
+                    run_id=run_id,
+                    provider=provider,
+                    role=role,
+                    policy_role=policy.role if policy else None,
+                    sandbox=policy.sandbox if policy else None,
+                    workdir=workdir,
+                ),
+                stdout=outcome.output,
+                stderr=outcome.stderr,
+                returncode=outcome.returncode,
+                timed_out=outcome.timed_out,
+                rate_limited=outcome.rate_limited,
+            )
+        )
         return output
 
     def _available_providers(self) -> list[str]:

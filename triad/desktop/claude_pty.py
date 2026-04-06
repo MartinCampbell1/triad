@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import os
 import pty
 import re
 import signal
+import struct
+import termios
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Sequence
@@ -41,6 +44,8 @@ class ClaudePTY:
     on_event: StreamEventHandler
     command: Sequence[str] = field(default_factory=lambda: ("claude",))
     env: dict[str, str] | None = None
+    cols: int = 120
+    rows: int = 32
     _master_fd: int | None = None
     _child_pid: int | None = None
     _reader_task: asyncio.Task | None = None
@@ -51,6 +56,7 @@ class ClaudePTY:
         if self._running:
             return
         master_fd, slave_fd = pty.openpty()
+        self._apply_winsize(slave_fd)
         pid = os.fork()
         if pid == 0:
             try:
@@ -72,10 +78,29 @@ class ClaudePTY:
         self._exit_task = asyncio.create_task(self._watch_exit())
 
     async def send(self, text: str) -> None:
+        await self.write((text.rstrip("\n") + "\n").encode("utf-8"))
+
+    async def write(self, data: bytes) -> None:
         if self._master_fd is None:
             raise RuntimeError("Claude PTY is not running")
-        payload = (text.rstrip("\n") + "\n").encode("utf-8")
-        await asyncio.to_thread(os.write, self._master_fd, payload)
+        if not data:
+            return
+        await asyncio.to_thread(os.write, self._master_fd, data)
+
+    async def resize(self, cols: int, rows: int) -> None:
+        if cols <= 0 or rows <= 0:
+            raise ValueError("Terminal size must be positive")
+        self.cols = cols
+        self.rows = rows
+        if self._master_fd is None:
+            return
+        winsize = struct.pack("HHHH", rows, cols, 0, 0)
+        await asyncio.to_thread(
+            fcntl.ioctl,
+            self._master_fd,
+            termios.TIOCSWINSZ,
+            winsize,
+        )
 
     async def stop(self) -> None:
         if not self._running:
@@ -159,6 +184,11 @@ class ClaudePTY:
         env.setdefault("COLORTERM", "truecolor")
         env.setdefault("HOME", str(Path.home()))
         return env
+
+    def _apply_winsize(self, fd: int) -> None:
+        winsize = struct.pack("HHHH", self.rows, self.cols, 0, 0)
+        with contextlib.suppress(OSError):
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
     @staticmethod
     def _is_chrome(text: str) -> bool:

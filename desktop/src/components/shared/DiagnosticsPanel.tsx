@@ -69,6 +69,7 @@ export function DiagnosticsPanel({ open }: Props) {
   const [data, setData] = useState<DiagnosticsPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
   const bridgeStatus = useBridgeStore((state) => state.status);
 
   const load = useCallback(async () => {
@@ -117,15 +118,24 @@ export function DiagnosticsPanel({ open }: Props) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[11px] uppercase tracking-[0.12em] text-text-tertiary">Diagnostics</div>
-          <div className="mt-1 text-[12px] text-text-secondary">Bridge runtime, provider pools and active sessions.</div>
+          <div className="mt-1 text-[12px] text-text-secondary">Bridge runtime, provider pools and usage counts.</div>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="rounded-md border border-border-light px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:border-border-default hover:text-text-primary"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDetails((value) => !value)}
+            className="rounded-md border border-border-light px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:border-border-default hover:text-text-primary"
+          >
+            {showDetails ? "Hide details" : "Details"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="rounded-md border border-border-light px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:border-border-default hover:text-text-primary"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {loading && !data ? (
@@ -165,9 +175,7 @@ export function DiagnosticsPanel({ open }: Props) {
                   ? "Bridge retrying"
                   : bridgeStatus.connected
                     ? "Bridge live"
-                    : bridgeStatus.backendMode === "mock"
-                      ? "Bridge mock"
-                      : "Bridge offline"
+                    : "Bridge offline"
                 : "Bridge starting"}
             </Badge>
           </div>
@@ -181,69 +189,73 @@ export function DiagnosticsPanel({ open }: Props) {
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[12px] font-medium text-text-primary">{providerLabel(provider.provider)}</span>
                   <Badge tone={toneForAvailability(provider.available > 0)}>
-                    {provider.total > 0 ? `${provider.available}/${provider.total} available` : "No accounts"}
+                    {provider.total > 0 ? `${provider.available}/${provider.total}` : "No accounts"}
                   </Badge>
                 </div>
                 <div className="mt-1 text-[11px] text-text-tertiary">
-                  {provider.cooling > 0 ? `${provider.cooling} cooling down` : "No cooldowns"}
+                  {provider.cooling > 0 ? `${provider.cooling} cooling down` : "Ready"}
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="mt-3 space-y-2">
-            <div className="text-[11px] uppercase tracking-[0.12em] text-text-tertiary">Active sessions</div>
-            {data.active_sessions.length === 0 ? (
-              <div className="rounded-[14px] border border-border-light bg-black/20 px-3 py-2 text-[12px] text-text-tertiary">
-                No active sessions.
+          {showDetails ? (
+            <>
+              <div className="mt-3 space-y-2">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-text-tertiary">Active sessions</div>
+                {data.active_sessions.length === 0 ? (
+                  <div className="rounded-[14px] border border-border-light bg-black/20 px-3 py-2 text-[12px] text-text-tertiary">
+                    No active sessions.
+                  </div>
+                ) : (
+                  data.active_sessions.slice(0, 4).map((session) => (
+                    <div
+                      key={session.id}
+                      className="rounded-[14px] border border-border-light bg-black/20 px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[12px] font-medium text-text-primary">{session.id}</span>
+                        <Badge tone="subtle" className="capitalize">
+                          {session.state}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        <Badge tone="neutral" className="capitalize">
+                          {session.mode}
+                        </Badge>
+                        <Badge tone="neutral">{session.provider}</Badge>
+                      </div>
+                      <div className="mt-1 truncate font-mono text-[11px] text-text-tertiary" title={session.project_path}>
+                        {compactPath(session.project_path)}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-            ) : (
-              data.active_sessions.slice(0, 4).map((session) => (
-                <div
-                  key={session.id}
-                  className="rounded-[14px] border border-border-light bg-black/20 px-3 py-2"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[12px] font-medium text-text-primary">{session.id}</span>
-                    <Badge tone="subtle" className="capitalize">
-                      {session.state}
-                    </Badge>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    <Badge tone="neutral" className="capitalize">
-                      {session.mode}
-                    </Badge>
-                    <Badge tone="neutral">{session.provider}</Badge>
-                  </div>
-                  <div className="mt-1 truncate font-mono text-[11px] text-text-tertiary" title={session.project_path}>
-                    {compactPath(session.project_path)}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
 
-          <div className="mt-3 space-y-2 rounded-[14px] border border-border-light bg-black/20 px-3 py-2">
-            <div className="text-[11px] uppercase tracking-[0.12em] text-text-tertiary">Paths</div>
-            <div className="text-[11px] text-text-tertiary">
-              <span className="mr-2 text-text-secondary">DB</span>
-              <span className="font-mono" title={data.db_path}>
-                {compactPath(data.db_path)}
-              </span>
-            </div>
-            <div className="text-[11px] text-text-tertiary">
-              <span className="mr-2 text-text-secondary">Home</span>
-              <span className="font-mono" title={data.triad_home}>
-                {compactPath(data.triad_home)}
-              </span>
-            </div>
-            <div className="text-[11px] text-text-tertiary">
-              <span className="mr-2 text-text-secondary">Hooks</span>
-              <span className="font-mono" title={data.hooks_socket}>
-                {compactPath(data.hooks_socket)}
-              </span>
-            </div>
-          </div>
+              <div className="mt-3 space-y-2 rounded-[14px] border border-border-light bg-black/20 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-text-tertiary">Paths</div>
+                <div className="text-[11px] text-text-tertiary">
+                  <span className="mr-2 text-text-secondary">DB</span>
+                  <span className="font-mono" title={data.db_path}>
+                    {compactPath(data.db_path)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-text-tertiary">
+                  <span className="mr-2 text-text-secondary">Home</span>
+                  <span className="font-mono" title={data.triad_home}>
+                    {compactPath(data.triad_home)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-text-tertiary">
+                  <span className="mr-2 text-text-secondary">Hooks</span>
+                  <span className="font-mono" title={data.hooks_socket}>
+                    {compactPath(data.hooks_socket)}
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : null}
         </>
       ) : null}
     </div>

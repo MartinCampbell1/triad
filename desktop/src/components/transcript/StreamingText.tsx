@@ -10,10 +10,10 @@ export function StreamingText({ text }: Props) {
   }
 
   return (
-    <div className="py-2">
-      <div className="whitespace-pre-wrap text-[14px] leading-[1.6] text-text-primary">
+    <div className="py-1.5">
+      <div className="whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--color-text-primary)]">
         {text}
-        <span className="ml-0.5 inline-block h-[14px] w-[2px] animate-pulse rounded-full bg-text-secondary align-text-bottom" />
+        <span className="ml-0.5 inline-block h-[13px] w-[2px] animate-pulse rounded-full bg-[var(--color-text-secondary)] align-text-bottom" />
       </div>
     </div>
   );

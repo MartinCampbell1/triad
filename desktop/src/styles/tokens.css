@@ -26,6 +26,7 @@
   --purple-300: #ad7bf9;
 
   --color-bg-surface: var(--gray-900);
+  --color-bg-sidebar: #171717;
   --color-bg-surface-under: var(--gray-1000);
   --color-bg-elevated: var(--gray-750);
   --color-bg-elevated-secondary: color-mix(in oklab, white 3%, transparent);
@@ -42,15 +43,16 @@
   --color-text-warning: var(--orange-300);
   --color-text-error: var(--red-300);
 
-  --color-border: color-mix(in oklab, white 6%, transparent);
-  --color-border-heavy: color-mix(in oklab, white 12%, transparent);
-  --color-border-light: color-mix(in oklab, white 3%, transparent);
+  /* Borders — matched to Codex: very subtle white overlays */
+  --color-border: rgba(255, 255, 255, 0.04);
+  --color-border-heavy: rgba(255, 255, 255, 0.08);
+  --color-border-light: rgba(255, 255, 255, 0.02);
   --color-border-focus: var(--blue-300);
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
 
-  --sidebar-width: 260px;
+  --sidebar-width: 300px;
   --titlebar-height: 48px;
   --composer-width: min(100%, 840px);
   --drawer-height: 210px;
@@ -60,8 +62,8 @@
   --radius-xl: 18px;
 
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
-  --motion-duration-fast: 120ms;
-  --motion-duration-medium: 200ms;
+  --motion-duration-fast: 150ms;
+  --motion-duration-medium: 150ms;
 }
 
 html,
@@ -96,6 +98,7 @@ select {
   background: rgba(51, 156, 255, 0.35);
 }
 
+/* Scrollbar — nearly invisible like Codex */
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
@@ -106,10 +109,10 @@ select {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
 }

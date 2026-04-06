@@ -1,6 +1,7 @@
 """Git worktree manager for parallel agent isolation."""
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import uuid
@@ -13,10 +14,9 @@ class WorktreeManager:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def create(self, repo_path: Path, name: str) -> Path:
-        branch = f"triad/{name}-{uuid.uuid4().hex[:6]}"
-        wt_path = self.base_dir / name
-        if wt_path.exists():
-            wt_path = self.base_dir / f"{name}-{uuid.uuid4().hex[:4]}"
+        slug = self._slugify_name(name)
+        branch = f"triad/{slug}-{uuid.uuid4().hex[:6]}"
+        wt_path = self.base_dir / f"{slug}-{uuid.uuid4().hex[:8]}"
         subprocess.run(
             ["git", "worktree", "add", "-b", branch, str(wt_path)],
             cwd=str(repo_path),
@@ -48,3 +48,9 @@ class WorktreeManager:
             except Exception:
                 pass
         return removed
+
+    @staticmethod
+    def _slugify_name(name: str) -> str:
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name.strip())
+        slug = slug.strip("-")
+        return slug or "worktree"

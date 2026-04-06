@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  surfaceBadge,
+  surfaceFooter,
+  surfaceHeader,
+  surfaceInput,
+  surfaceRow,
+  surfaceRowActive,
+  surfaceRowInactive,
+  surfaceShell,
+} from "./surfaceStyles";
 
 export interface CommandItem {
   id: string;
@@ -118,17 +128,21 @@ export function CommandPalette({ open, onClose, commands }: Props) {
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[14vh] backdrop-blur-[2px]"
       onMouseDown={onClose}
     >
-      <div
-        className="w-full max-w-[640px] overflow-hidden rounded-[22px] border border-border-strong bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015)),var(--color-bg-elevated)] shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="border-b border-border-light px-4 py-3">
+      <div className={`w-full max-w-[680px] ${surfaceShell}`} onMouseDown={(event) => event.stopPropagation()}>
+        <div className={surfaceHeader}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-[12px] uppercase tracking-[0.1em] text-[var(--color-text-tertiary)]">Command palette</div>
+              <div className="mt-1 text-[14px] text-[var(--color-text-primary)]">Search commands and workspace actions</div>
+            </div>
+            <span className={surfaceBadge}>Esc closes</span>
+          </div>
           <input
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Type a command or search"
-            className="w-full bg-transparent text-[14px] text-text-primary outline-none placeholder:text-text-tertiary"
+            className={`mt-3 ${surfaceInput}`}
           />
         </div>
 
@@ -146,39 +160,37 @@ export function CommandPalette({ open, onClose, commands }: Props) {
                     onClose();
                   }}
                   className={[
-                    "flex w-full items-center justify-between gap-3 rounded-[14px] px-4 py-3 text-left transition-colors",
-                    active
-                      ? "bg-elevated text-text-primary shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
-                      : "text-text-secondary hover:bg-elevated-secondary hover:text-text-primary",
+                    surfaceRow,
+                    active ? surfaceRowActive : surfaceRowInactive,
                   ].join(" ")}
                 >
                   <div className="min-w-0">
                     <div className="truncate text-[13px] font-medium">{command.label}</div>
                     {command.description ? (
-                      <div className="mt-1 line-clamp-1 text-[12px] text-text-tertiary">
+                      <div className="mt-1 line-clamp-1 text-[12px] text-[var(--color-text-tertiary)]">
                         {command.description}
                       </div>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {command.shortcut ? (
-                      <span className="rounded-full border border-border-light px-2 py-1 text-[11px] text-text-tertiary">
+                      <span className={surfaceBadge}>
                         {command.shortcut}
                       </span>
                     ) : null}
-                    <span className="text-text-tertiary">↵</span>
+                    <span className="text-[var(--color-text-tertiary)]">↵</span>
                   </div>
                 </button>
               );
             })
           ) : (
-            <div className="px-4 py-10 text-center text-[13px] text-text-tertiary">
+            <div className="px-4 py-10 text-center text-[13px] text-[var(--color-text-tertiary)]">
               No commands found
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border-light px-4 py-2 text-[11px] text-text-tertiary">
+        <div className={surfaceFooter}>
           <span>Esc close</span>
           <span>{activeCommand ? activeCommand.label : "No selection"}</span>
         </div>

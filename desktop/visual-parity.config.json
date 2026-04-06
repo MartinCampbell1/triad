@@ -1,0 +1,16 @@
+{
+  "baseUrl": "http://127.0.0.1:1420",
+  "outputDir": "visual-parity",
+  "viewport": {
+    "width": 1440,
+    "height": 920
+  },
+  "targets": [
+    {
+      "name": "desktop-shell",
+      "path": "/",
+      "waitForSelector": "#root",
+      "waitMs": 1200
+    }
+  ]
+}

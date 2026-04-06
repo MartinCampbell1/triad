@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -34,9 +36,23 @@ class FakeAdapter:
             yield event
 
 
+def _create_git_repo(root: Path) -> Path:
+    repo = root / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, capture_output=True, check=True)
+    (repo / "README.md").write_text("# triad\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, capture_output=True, check=True)
+    return repo
+
+
 @pytest.mark.asyncio
-async def test_orchestrator_run_critic_emits_findings_and_completion(tmp_path: Path):
+async def test_orchestrator_run_critic_emits_findings_and_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repo = _create_git_repo(tmp_path)
     events: list[dict] = []
+    captured_workdirs: list[Path] = []
 
     async def on_event(event: dict) -> None:
         events.append(event)
@@ -56,18 +72,27 @@ async def test_orchestrator_run_critic_emits_findings_and_completion(tmp_path: P
             StreamEvent(kind="done", data={"returncode": 0}),
         ]
     )
+    worktree_manager = MagicMock()
+    worktree_path = tmp_path / "critic-wt"
+    worktree_manager.create.return_value = worktree_path
 
     account_manager = FakeAccountManager()
     orchestrator = Orchestrator(
         on_event=on_event,
         account_manager=account_manager,
+        worktree_manager=worktree_manager,
         adapter_factory=lambda provider: {"claude": writer, "codex": critic}[provider],
+    )
+    monkeypatch.setattr(
+        "triad.desktop.orchestrator.capture_repo_artifacts",
+        lambda workdir: captured_workdirs.append(workdir)
+        or {"status": "M x.py", "diff_stat": "1 file changed", "diff_patch": "diff --git"},
     )
 
     rounds = await orchestrator.run_critic(
         session_id="sess_critic",
         prompt="Implement critic mode",
-        workdir=tmp_path,
+        workdir=repo,
         writer_provider="claude",
         critic_provider="codex",
         max_rounds=1,
@@ -75,7 +100,20 @@ async def test_orchestrator_run_critic_emits_findings_and_completion(tmp_path: P
 
     assert len(rounds) == 1
     assert rounds[0].findings[0]["severity"] == "P1"
+    assert writer.calls[0]["workdir"] == worktree_path
+    assert critic.calls[0]["workdir"] == worktree_path
+    assert captured_workdirs == [worktree_path]
+    worktree_manager.create.assert_called_once_with(repo_path=repo, name="desktop-critic-sess_critic")
+    worktree_manager.remove.assert_called_once_with(worktree_path)
     assert any(event["type"] == "message_finalized" and event.get("role") == "writer" for event in events)
+    assert any(
+        event["type"] == "run_completed"
+        and event.get("run_id") == "sess_critic:critic:1:writer"
+        and event.get("policy_role") == "writer"
+        and event.get("returncode") == 0
+        for event in events
+    )
+    assert any(event["type"] == "diff_snapshot" and event.get("patch") == "diff --git" for event in events)
     assert any(event["type"] == "message_finalized" and event.get("role") == "critic" for event in events)
     assert any(event["type"] == "review_finding" and event.get("file") == "desktop/src/hooks/useStreamEvents.ts" for event in events)
     assert events[-1]["type"] == "run_completed"
@@ -87,6 +125,7 @@ async def test_orchestrator_run_critic_emits_findings_and_completion(tmp_path: P
 
 @pytest.mark.asyncio
 async def test_orchestrator_marks_rate_limited_failures(tmp_path: Path):
+    repo = _create_git_repo(tmp_path)
     events: list[dict] = []
 
     async def on_event(event: dict) -> None:
@@ -110,7 +149,7 @@ async def test_orchestrator_marks_rate_limited_failures(tmp_path: Path):
     rounds = await orchestrator.run_critic(
         session_id="sess_rate_limit",
         prompt="Implement critic mode",
-        workdir=tmp_path,
+        workdir=repo,
         writer_provider="claude",
         critic_provider="codex",
         max_rounds=1,
@@ -120,6 +159,48 @@ async def test_orchestrator_marks_rate_limited_failures(tmp_path: Path):
     assert events[-1]["type"] == "run_failed"
     assert "rate limit" in events[-1]["error"].lower()
     assert account_manager.rate_limited == [("claude", "claude-acc")]
+    assert any(
+        event["type"] == "run_failed"
+        and event.get("run_id") == "sess_rate_limit:critic:1:writer"
+        and "rate limit" in str(event.get("stderr", "")).lower()
+        and event.get("policy_role") == "writer"
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_run_critic_fails_closed_on_non_git_repo(tmp_path: Path):
+    events: list[dict] = []
+
+    async def on_event(event: dict) -> None:
+        events.append(event)
+
+    writer = FakeAdapter([StreamEvent(kind="done", data={"returncode": 0})])
+    critic = FakeAdapter([StreamEvent(kind="done", data={"returncode": 0})])
+    worktree_manager = MagicMock()
+
+    orchestrator = Orchestrator(
+        on_event=on_event,
+        account_manager=FakeAccountManager(),
+        worktree_manager=worktree_manager,
+        adapter_factory=lambda provider: {"claude": writer, "codex": critic}[provider],
+    )
+
+    rounds = await orchestrator.run_critic(
+        session_id="sess_non_git",
+        prompt="Implement critic mode",
+        workdir=tmp_path,
+        writer_provider="claude",
+        critic_provider="codex",
+        max_rounds=1,
+    )
+
+    assert rounds == []
+    assert events[-1]["type"] == "run_failed"
+    assert "isolated worktree" in events[-1]["error"].lower()
+    worktree_manager.create.assert_not_called()
+    assert writer.calls == []
+    assert critic.calls == []
 
 
 @pytest.mark.asyncio
@@ -170,6 +251,12 @@ async def test_orchestrator_run_brainstorm_emits_ideators_and_moderator(tmp_path
     assert any(event["type"] == "message_finalized" and event.get("role") == "ideator" for event in events)
     assert any(event["type"] == "message_finalized" and event.get("role") == "moderator" for event in events)
     assert events[-1]["type"] == "run_completed"
+    assert any(
+        event["type"] == "system"
+        and event.get("run_phase") == "started"
+        and event.get("policy_role") == "critic"
+        for event in events
+    )
     assert adapters["claude"].calls[0]["policy"].role == "critic"
     assert adapters["gemini"].calls[0]["policy"].role == "critic"
 
@@ -217,6 +304,12 @@ async def test_orchestrator_run_delegate_emits_live_lane_streams(tmp_path: Path)
     )
     assert any(
         event["type"] == "message_finalized" and event.get("role") == "delegate" for event in events
+    )
+    assert any(
+        event["type"] == "run_completed"
+        and event.get("run_id", "").startswith("sess_delegate:delegate:")
+        and event.get("returncode") == 0
+        for event in events
     )
     assert any(
         event["type"] == "system"

@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "visual:pack": "node ./scripts/visual-parity-pack.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.4.1",
+    "playwright": "^1.58.2",
     "tailwindcss": "^4.1.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"

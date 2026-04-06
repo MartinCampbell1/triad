@@ -1,37 +1,18 @@
+import { buildStructuredDiffFile } from "../../lib/diff";
+
 interface Props {
   filePath: string;
   oldText: string;
   newText: string;
 }
 
-function rowsFromDiff(oldText: string, newText: string) {
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
-  const max = Math.max(oldLines.length, newLines.length);
-  const rows: Array<{ kind: "context" | "add" | "remove"; text: string }> = [];
-
-  for (let index = 0; index < max; index += 1) {
-    const oldLine = oldLines[index];
-    const newLine = newLines[index];
-    if (oldLine === newLine) {
-      if (oldLine !== undefined) {
-        rows.push({ kind: "context", text: oldLine });
-      }
-      continue;
-    }
-    if (oldLine !== undefined) {
-      rows.push({ kind: "remove", text: oldLine });
-    }
-    if (newLine !== undefined) {
-      rows.push({ kind: "add", text: newLine });
-    }
-  }
-
-  return rows;
-}
-
 export function DiffCard({ filePath, oldText, newText }: Props) {
-  const rows = rowsFromDiff(oldText, newText).slice(0, 24);
+  const diff = buildStructuredDiffFile({
+    path: filePath,
+    oldContent: oldText,
+    newContent: newText,
+  });
+  const previewLines = diff.hunks.flatMap((hunk) => hunk.lines).slice(0, 24);
 
   return (
     <div className="py-1">
@@ -39,22 +20,40 @@ export function DiffCard({ filePath, oldText, newText }: Props) {
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-green-300">
           <path d="M3 8L7 12L13 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span>Edit</span>
+        <span>{diff.status === "added" ? "Create" : diff.status === "deleted" ? "Delete" : "Edit"}</span>
         <span className="text-text-secondary">{filePath}</span>
+        <span className="text-[var(--color-text-success)]">+{diff.additions}</span>
+        <span className="text-[var(--color-text-error)]">-{diff.deletions}</span>
       </div>
       <div className="mt-1 max-h-[260px] overflow-auto rounded-lg bg-[rgba(0,0,0,0.3)] font-mono text-[12px] leading-[1.5]">
-        {rows.map((row, index) => (
+        {previewLines.map((line, index) => (
           <div
             key={`${filePath}-${index}`}
             className={[
-              "whitespace-pre-wrap px-3 py-px",
-              row.kind === "add" ? "bg-[rgba(64,201,119,0.1)] text-[#c8f7d5]" : "",
-              row.kind === "remove" ? "bg-[rgba(255,103,100,0.1)] text-[#ffd6d4]" : "",
-              row.kind === "context" ? "text-text-secondary" : "",
+              "grid grid-cols-[48px_48px_20px_minmax(0,1fr)] px-2",
+              line.kind === "add" ? "bg-[rgba(64,201,119,0.1)]" : "",
+              line.kind === "remove" ? "bg-[rgba(255,103,100,0.1)]" : "",
             ].join(" ")}
           >
-            {row.kind === "add" ? "+ " : row.kind === "remove" ? "- " : "  "}
-            {row.text}
+            <span className="select-none px-2 py-px text-right text-[11px] text-text-tertiary">
+              {line.oldLineNumber ?? ""}
+            </span>
+            <span className="select-none px-2 py-px text-right text-[11px] text-text-tertiary">
+              {line.newLineNumber ?? ""}
+            </span>
+            <span className="select-none px-1 py-px text-center text-text-tertiary">
+              {line.kind === "add" ? "+" : line.kind === "remove" ? "-" : " "}
+            </span>
+            <span
+              className={[
+                "whitespace-pre-wrap break-words px-2 py-px",
+                line.kind === "add" ? "text-[#c8f7d5]" : "",
+                line.kind === "remove" ? "text-[#ffd6d4]" : "",
+                line.kind === "context" ? "text-text-secondary" : "",
+              ].join(" ")}
+            >
+              {line.text}
+            </span>
           </div>
         ))}
       </div>

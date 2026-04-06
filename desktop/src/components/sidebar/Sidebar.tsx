@@ -1,13 +1,14 @@
 import { useMemo } from "react";
 import { useProjectStore } from "../../stores/project-store";
 import { useSessionStore } from "../../stores/session-store";
+import { useUiStore } from "../../stores/ui-store";
 import { ProjectGroup } from "./ProjectGroup";
-import { SearchPanel } from "./SearchPanel";
 import { SidebarFooter } from "./SidebarFooter";
 
 export function Sidebar() {
-  const { projects, activeProject, setActiveProject, loadProjects, loading, openProject } = useProjectStore();
+  const { projects, activeProject, setActiveProject, loading, openProject } = useProjectStore();
   const { sessions, activeSession, setActiveSession, createSession, loadSessions } = useSessionStore();
+  const toggleSidebar = useUiStore((state) => state.toggleSidebar);
 
   const groupedSessions = useMemo(() => {
     return projects.map((project) => ({
@@ -27,86 +28,66 @@ export function Sidebar() {
   };
 
   const handleOpenProject = async () => {
-    const project = await openProject("/Users/martin/triad");
+    const defaultPath = activeProject?.path ?? projects[0]?.path ?? "";
+    const path = globalThis.prompt("Enter the absolute path to the project", defaultPath);
+    if (!path?.trim()) {
+      return;
+    }
+    const project = await openProject(path.trim());
     setActiveProject(project);
     await loadSessions("");
   };
 
   return (
-    <aside className="flex h-full w-[var(--sidebar-width)] flex-col border-r border-[rgba(255,255,255,0.06)] bg-[var(--color-bg-surface)]">
-      {/* Top nav items */}
-      <div className="px-3 pb-1 pt-[52px]">
+    <aside className="flex h-full w-[var(--sidebar-width)] flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-sidebar)]">
+      <div className="flex h-[var(--titlebar-height)] shrink-0 items-center gap-0.5 pl-[78px] pr-2" data-tauri-drag-region>
+        <button
+          type="button"
+          title="Toggle sidebar"
+          onClick={toggleSidebar}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors duration-150 hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--color-text-secondary)]"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+            <line x1="5.5" y1="2.5" x2="5.5" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="px-2">
         <button
           onClick={handleNewSession}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-[7px] text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-[6px] text-left text-[13px] text-[var(--color-text-secondary)] transition-colors duration-150 hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--color-text-primary)]"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 text-text-tertiary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[var(--color-text-tertiary)]">
             <path d="M11.5 1.5L14.5 4.5L5 14H2V11L11.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
           </svg>
-          <span>Новая беседа</span>
+          <span>New session</span>
         </button>
-        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-[7px] text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 text-text-tertiary">
+        <button
+          onClick={handleOpenProject}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-[6px] text-left text-[13px] text-[var(--color-text-secondary)] transition-colors duration-150 hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--color-text-primary)]"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[var(--color-text-tertiary)]">
             <rect x="1" y="1" width="5.5" height="5.5" rx="1.2" stroke="currentColor" strokeWidth="1.2" />
             <rect x="9.5" y="1" width="5.5" height="5.5" rx="1.2" stroke="currentColor" strokeWidth="1.2" />
             <rect x="1" y="9.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" strokeWidth="1.2" />
             <rect x="9.5" y="9.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" strokeWidth="1.2" />
           </svg>
-          <span>Навыки и приложения</span>
-        </button>
-        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-[7px] text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 text-text-tertiary">
-            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M8 4V8L10.5 10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-          <span>Автоматизации</span>
+          <span>Open project</span>
         </button>
       </div>
 
-      {/* Separator */}
-      <div className="mx-3 my-1 border-t border-[rgba(255,255,255,0.06)]" />
+      <div className="mx-3 my-1.5 border-t border-[var(--color-border)]" />
 
-      {/* Conversations header */}
-      <div className="flex items-center justify-between px-4 pb-1 pt-1">
-        <span className="text-[12px] text-text-tertiary">Беседы</span>
-        <div className="flex items-center gap-0.5">
-          {/* Collapse-diagonal arrows (matches Codex ↙↗) */}
-          <button
-            className="flex h-6 w-6 items-center justify-center rounded text-text-tertiary hover:text-text-secondary"
-            title="Collapse all"
-          >
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-              <path d="M10 2L6 6M6 6V2M6 6H2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M6 14L10 10M10 10V14M10 10H14" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {/* Filter lines (matches Codex ≡) */}
-          <button
-            className="flex h-6 w-6 items-center justify-center rounded text-text-tertiary hover:text-text-secondary"
-            title="Filter"
-          >
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-              <path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-          </button>
-          {/* Add folder (matches Codex 📁+) */}
-          <button
-            onClick={handleOpenProject}
-            className="flex h-6 w-6 items-center justify-center rounded text-text-tertiary hover:text-text-secondary"
-            title="Add project"
-          >
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-              <path d="M2 4.5h4l1.5 2H14v7H2V4.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-              <path d="M10 9.5v-3M8.5 8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
+      <div className="flex items-center justify-between px-3 pb-1 pt-0.5">
+        <span className="text-[12px] text-[var(--color-text-tertiary)]">Sessions</span>
       </div>
 
       {/* Session list */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3">
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
         {loading && projects.length === 0 ? (
-          <div className="px-3 py-6 text-center text-[13px] text-text-tertiary">Загрузка проектов...</div>
+          <div className="px-3 py-6 text-center text-[13px] text-[var(--color-text-tertiary)]">Loading projects...</div>
         ) : null}
         {groupedSessions.map(({ project, sessions: projectSessions }) => (
           <ProjectGroup
@@ -121,8 +102,8 @@ export function Sidebar() {
           />
         ))}
         {projects.length === 0 ? (
-          <div className="px-3 py-6 text-center text-[13px] text-text-tertiary">
-            Откройте проект, чтобы начать.
+          <div className="px-3 py-6 text-center text-[13px] text-[var(--color-text-tertiary)]">
+            Open a project to begin.
           </div>
         ) : null}
       </div>

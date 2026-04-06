@@ -8,7 +8,7 @@ interface BridgeState {
 }
 
 const initialStatus: BridgeStatus = {
-  backendMode: "mock",
+  backendMode: "offline",
   started: false,
   connected: false,
   reconnecting: false,
