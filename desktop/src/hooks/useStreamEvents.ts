@@ -1,9 +1,19 @@
 import { useEffect, useRef } from "react";
 import { onEvent } from "../lib/rpc";
 import { notifyMacOSRunOutcome, setMacOSDockBadgeLabel } from "../lib/tauri-macos";
-import type { StreamEvent } from "../lib/types";
+import type { DiffSnapshot, Message, StreamEvent, ToolEventPayload } from "../lib/types";
 import { useSessionStore } from "../stores/session-store";
 import { useUiStore } from "../stores/ui-store";
+
+function makeEventMessageId(prefix: string, event: StreamEvent, timestamp: string) {
+  if (event.message_id) {
+    return `${prefix}_${event.message_id}`;
+  }
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}_${event.run_id ?? event.type}_${crypto.randomUUID()}`;
+  }
+  return `${prefix}_${event.run_id ?? event.type}_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function parseToolInput(input: unknown) {
   if (input && typeof input === "object") {
@@ -12,20 +22,77 @@ function parseToolInput(input: unknown) {
   return {};
 }
 
+function normalizeToolInput(input: unknown): Record<string, unknown> | string {
+  if (typeof input === "string") {
+    return input;
+  }
+  return parseToolInput(input);
+}
+
+function maybeBuildDiffSnapshot(tool: string, input: unknown, fallbackOutput?: unknown): DiffSnapshot | null {
+  if (tool !== "Edit" && tool !== "Write") {
+    return null;
+  }
+  const parsedInput = parseToolInput(input);
+  const path = String(parsedInput.file_path ?? parsedInput.path ?? parsedInput.target_file ?? "");
+  const oldText = String(parsedInput.old_text ?? parsedInput.old_string ?? parsedInput.oldText ?? "");
+  const newText = String(
+    parsedInput.new_text ??
+      parsedInput.new_string ??
+      parsedInput.newText ??
+      parsedInput.content ??
+      fallbackOutput ??
+      ""
+  );
+  if (!path || (!oldText && !newText)) {
+    return null;
+  }
+  return {
+    path,
+    old_text: oldText,
+    new_text: newText,
+  };
+}
+
+function buildToolMessage(
+  sessionId: string,
+  provider: Message["provider"],
+  timestamp: string,
+  eventId: string,
+  eventType: Message["event_type"],
+  toolEvent: ToolEventPayload,
+  diffSnapshot: DiffSnapshot | null
+): Message {
+  return {
+    id: eventId,
+    session_id: sessionId,
+    role: "system",
+    content: toolEvent.tool,
+    provider,
+    timestamp,
+    event_type: eventType,
+    tool_event: toolEvent,
+    diff_snapshot: diffSnapshot,
+  };
+}
+
 export function useStreamEvents() {
-  const activeSession = useSessionStore((state) => state.activeSession);
-  const sessions = useSessionStore((state) => state.sessions);
   const appendStreamingText = useSessionStore((state) => state.appendStreamingText);
+  const updateSessionStatus = useSessionStore((state) => state.updateSessionStatus);
   const finalizeStreaming = useSessionStore((state) => state.finalizeStreaming);
+  const clearStreamingText = useSessionStore((state) => state.clearStreamingText);
   const addMessage = useSessionStore((state) => state.addMessage);
   const upsertDiffFile = useUiStore((state) => state.upsertDiffFile);
   const activeRunIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     return onEvent((event: StreamEvent) => {
+      const { activeSession, sessions } = useSessionStore.getState();
       const sessionTitle =
-        (activeSession?.id === event.session_id ? activeSession.title : sessions.find((session) => session.id === event.session_id)?.title) ??
-        "Current session";
+        (activeSession?.id === event.session_id
+          ? activeSession.title
+          : sessions.find((session) => session.id === event.session_id)?.title) ?? "Current session";
+      const timestamp = new Date().toISOString();
 
       switch (event.type) {
         case "text_delta":
@@ -33,74 +100,128 @@ export function useStreamEvents() {
             activeRunIdsRef.current.add(event.run_id);
             void setMacOSDockBadgeLabel(String(activeRunIdsRef.current.size));
           }
+          updateSessionStatus(event.session_id, "running");
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
           }
-          appendStreamingText(event.run_id, String(event.delta ?? ""), event.provider, event.role);
+          appendStreamingText(event.run_id, event.delta, event.provider, event.role);
           break;
-        case "tool_use":
+        case "tool_use": {
+          if (!activeSession || event.session_id !== activeSession.id) {
+            break;
+          }
+          const toolEvent: ToolEventPayload = {
+            tool: event.tool,
+            input: normalizeToolInput(event.input),
+            output: event.output,
+            status: event.status,
+          };
+          const diffSnapshot = maybeBuildDiffSnapshot(event.tool, event.input, event.output);
+          addMessage(
+            buildToolMessage(
+              activeSession.id,
+              event.provider,
+              timestamp,
+              makeEventMessageId("tool", event, timestamp),
+              "tool_use",
+              toolEvent,
+              diffSnapshot
+            ),
+            { count: false }
+          );
+          if (diffSnapshot) {
+            upsertDiffFile({
+              path: diffSnapshot.path,
+              oldContent: diffSnapshot.old_text,
+              newContent: diffSnapshot.new_text,
+            });
+          }
+          break;
+        }
+        case "tool_result": {
+          if (!activeSession || event.session_id !== activeSession.id) {
+            break;
+          }
+          const toolEvent: ToolEventPayload = {
+            tool: event.tool,
+            input: normalizeToolInput(event.input),
+            output: event.output,
+            status: event.status,
+          };
+          const diffSnapshot = maybeBuildDiffSnapshot(event.tool, event.input, event.output);
+          addMessage(
+            buildToolMessage(
+              activeSession.id,
+              event.provider,
+              timestamp,
+              makeEventMessageId("tool", event, timestamp),
+              "tool_result",
+              toolEvent,
+              diffSnapshot
+            ),
+            { count: false }
+          );
+          if (diffSnapshot) {
+            upsertDiffFile({
+              path: diffSnapshot.path,
+              oldContent: diffSnapshot.old_text,
+              newContent: diffSnapshot.new_text,
+            });
+          }
+          break;
+        }
+        case "diff_snapshot":
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
           }
           addMessage(
             {
-              id: `tool_${Date.now()}`,
+              id: makeEventMessageId("diff", event, timestamp),
               session_id: activeSession.id,
               role: "system",
-              content: `!tool:${JSON.stringify({
-                tool: event.tool ?? "tool",
-                input: event.input ?? {},
-                output: event.output,
-                status: event.status ?? "running",
-                provider: event.provider,
-              })}`,
+              content: event.path,
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              timestamp,
+              event_type: "diff_snapshot",
+              diff_snapshot: {
+                path: event.path,
+                old_text: event.old_text,
+                new_text: event.new_text,
+              },
             },
             { count: false }
           );
-
-          if (String(event.tool ?? "") === "Edit" || String(event.tool ?? "") === "Write") {
-            const input = parseToolInput(event.input);
-            const path = String(input.file_path ?? input.path ?? input.target_file ?? "untitled");
-            const oldText = String(input.old_string ?? input.oldText ?? "");
-            const newText = String(input.new_string ?? input.newText ?? input.content ?? "");
-            if (path && (oldText || newText)) {
-              upsertDiffFile({
-                path,
-                oldContent: oldText,
-                newContent: newText,
-              });
-            }
-          }
-          break;
-        case "tool_result":
-          if (!activeSession || event.session_id !== activeSession.id) {
-            break;
-          }
-          addMessage(
-            {
-              id: `tool_result_${Date.now()}`,
-              session_id: activeSession.id,
-              role: "system",
-              content: `!tool:${JSON.stringify({
-                tool: event.tool ?? "tool",
-                input: event.input ?? {},
-                output: event.output,
-                status: event.status ?? (event.success === false ? "failed" : "completed"),
-                provider: event.provider,
-              })}`,
-              provider: event.provider,
-              timestamp: new Date().toISOString(),
-            },
-            { count: false }
-          );
+          upsertDiffFile({
+            path: event.path,
+            oldContent: event.old_text,
+            newContent: event.new_text,
+          });
           break;
         case "message_finalized":
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
           }
-          finalizeStreaming(event.run_id, String(event.content ?? ""), event.provider, event.role);
+          if (event.authoritative || event.message_id) {
+            clearStreamingText(event.run_id);
+            const messageId = event.message_id
+              ? `msg_assistant_${event.message_id}`
+              : makeEventMessageId("assistant", event, timestamp);
+            addMessage(
+              {
+                id: messageId,
+                session_id: activeSession.id,
+                role: "assistant",
+                content: event.content,
+                provider: event.provider,
+                agent_role: event.role,
+                timestamp,
+                authoritative: event.authoritative,
+              },
+              { count: true }
+            );
+            break;
+          }
+          finalizeStreaming(event.run_id, event.content, event.provider, event.role);
           break;
         case "review_finding":
           if (!activeSession || event.session_id !== activeSession.id) {
@@ -108,12 +229,38 @@ export function useStreamEvents() {
           }
           addMessage(
             {
-              id: `finding_${Date.now()}`,
+              id: makeEventMessageId("finding", event, timestamp),
               session_id: activeSession.id,
               role: "system",
-              content: `!finding:${String(event.severity ?? "P2")}|${String(event.file ?? "src/App.tsx")}|${String(event.title ?? "Finding")}|${String(event.explanation ?? "")}`,
+              content: event.title,
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              timestamp,
+              event_type: "review_finding",
+              review_finding: {
+                severity: event.severity,
+                file: event.file,
+                line: event.line,
+                line_range: event.line_range,
+                title: event.title,
+                explanation: event.explanation,
+              },
+            },
+            { count: false }
+          );
+          break;
+        case "stderr":
+          if (!activeSession || event.session_id !== activeSession.id) {
+            break;
+          }
+          addMessage(
+            {
+              id: makeEventMessageId("stderr", event, timestamp),
+              session_id: activeSession.id,
+              role: "system",
+              content: event.data,
+              provider: event.provider,
+              timestamp,
+              event_type: "stderr",
             },
             { count: false }
           );
@@ -124,12 +271,12 @@ export function useStreamEvents() {
           }
           addMessage(
             {
-              id: `system_${Date.now()}`,
+              id: makeEventMessageId("system", event, timestamp),
               session_id: activeSession.id,
               role: "system",
-              content: String(event.content ?? ""),
+              content: event.content,
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              timestamp,
             },
             { count: false }
           );
@@ -141,6 +288,7 @@ export function useStreamEvents() {
               activeRunIdsRef.current.size > 0 ? String(activeRunIdsRef.current.size) : undefined
             );
           }
+          updateSessionStatus(event.session_id, "completed");
           if (activeSession && event.session_id === activeSession.id) {
             finalizeStreaming(event.run_id);
           }
@@ -157,11 +305,12 @@ export function useStreamEvents() {
               activeRunIdsRef.current.size > 0 ? String(activeRunIdsRef.current.size) : undefined
             );
           }
+          updateSessionStatus(event.session_id, "failed");
           void notifyMacOSRunOutcome({
             title: sessionTitle,
             outcome: "failed",
             provider: event.provider,
-            error: event.error ?? "Run failed",
+            error: event.error,
           });
           if (!activeSession || event.session_id !== activeSession.id) {
             break;
@@ -169,12 +318,13 @@ export function useStreamEvents() {
           finalizeStreaming(event.run_id, undefined, event.provider, event.role);
           addMessage(
             {
-              id: `error_${Date.now()}`,
+              id: makeEventMessageId("error", event, timestamp),
               session_id: activeSession.id,
               role: "system",
-              content: event.error ?? "Run failed",
+              content: event.error,
               provider: event.provider,
-              timestamp: new Date().toISOString(),
+              timestamp,
+              event_type: "run_failed",
             },
             { count: false }
           );
@@ -183,5 +333,12 @@ export function useStreamEvents() {
           break;
       }
     });
-  }, [activeSession?.id, activeSession?.title, addMessage, appendStreamingText, finalizeStreaming, sessions, upsertDiffFile]);
+  }, [
+    addMessage,
+    appendStreamingText,
+    clearStreamingText,
+    finalizeStreaming,
+    updateSessionStatus,
+    upsertDiffFile,
+  ]);
 }

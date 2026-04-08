@@ -27,6 +27,7 @@ interface SessionState {
   setActiveSession: (session: Session | null) => void;
   addMessage: (message: Message, options?: { count?: boolean }) => void;
   appendStreamingText: (runId: string | undefined, delta: string, provider?: Session["provider"], role?: string) => void;
+  updateSessionStatus: (sessionId: string, status: Session["status"]) => void;
   finalizeStreaming: (
     runId?: string,
     content?: string,
@@ -169,25 +170,35 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
   addMessage: (message, options) => {
     const count = options?.count ?? true;
-    set((state) => ({
-      messages: [...state.messages, message],
-      activeSession: state.activeSession
-        ? {
-            ...state.activeSession,
-            updated_at: message.timestamp,
-            message_count: count ? state.activeSession.message_count + 1 : state.activeSession.message_count,
-          }
-        : state.activeSession,
-      sessions: state.sessions.map((session) =>
-        session.id === message.session_id
+    set((state) => {
+      const existingIndex = state.messages.findIndex((entry) => entry.id === message.id);
+      const isNewMessage = existingIndex < 0;
+      const nextMessages =
+        existingIndex < 0
+          ? [...state.messages, message]
+          : state.messages.map((entry, index) => (index === existingIndex ? message : entry));
+      const nextCountDelta = count && isNewMessage ? 1 : 0;
+
+      return {
+        messages: nextMessages,
+        activeSession: state.activeSession
           ? {
-              ...session,
+              ...state.activeSession,
               updated_at: message.timestamp,
-              message_count: count ? session.message_count + 1 : session.message_count,
+              message_count: state.activeSession.message_count + nextCountDelta,
             }
-          : session
-      ),
-    }));
+          : state.activeSession,
+        sessions: state.sessions.map((session) =>
+          session.id === message.session_id
+            ? {
+                ...session,
+                updated_at: message.timestamp,
+                message_count: session.message_count + nextCountDelta,
+              }
+            : session
+        ),
+      };
+    });
   },
   appendStreamingText: (runId, delta, provider, role) => {
     const normalizedRunId = normalizeRunId(runId);
@@ -218,6 +229,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ],
     }));
   },
+  updateSessionStatus: (sessionId, status) =>
+    set((state) => ({
+      activeSession:
+        state.activeSession?.id === sessionId
+          ? {
+              ...state.activeSession,
+              status,
+            }
+          : state.activeSession,
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              status,
+            }
+          : session
+      ),
+    })),
   finalizeStreaming: (runId, content, provider, role) => {
     const activeSession = get().activeSession;
     const normalizedRunId = runId ? normalizeRunId(runId) : null;

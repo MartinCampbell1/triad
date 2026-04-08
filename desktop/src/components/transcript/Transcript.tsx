@@ -13,34 +13,17 @@ import { buildTranscriptOverview, TranscriptOverview } from "./TranscriptOvervie
 import { ToolCard } from "./ToolCard";
 import { UserMessage } from "./UserMessage";
 
-function parseToolMessage(content: string) {
-  if (!content.startsWith("!tool:")) {
-    return null;
-  }
-  try {
-    const payload = JSON.parse(content.slice("!tool:".length)) as {
-      tool?: string;
-      input?: Record<string, unknown> | string;
-      output?: unknown;
-      status?: "running" | "completed" | "failed";
-    };
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
 function estimateMessageSize(message: Message) {
   if (message.role === "user") {
     return 144;
   }
-  if (message.content.startsWith("!finding:")) {
+  if (message.review_finding) {
     return 196;
   }
-  if (message.content.startsWith("!tool:")) {
+  if (message.tool_event) {
     return 188;
   }
-  if (message.content.startsWith("!bash:")) {
+  if (message.diff_snapshot) {
     return 184;
   }
   if (message.role === "system") {
@@ -66,30 +49,33 @@ function renderTranscriptNode(message: Message): ReactNode {
     return <UserMessage message={message} />;
   }
 
-  const toolPayload = parseToolMessage(message.content);
-  if (toolPayload) {
+  if (message.review_finding) {
+    return <FindingCard finding={message.review_finding} />;
+  }
+
+  if (message.diff_snapshot) {
+    return (
+      <DiffCard
+        filePath={message.diff_snapshot.path}
+        oldText={message.diff_snapshot.old_text}
+        newText={message.diff_snapshot.new_text}
+      />
+    );
+  }
+
+  if (message.tool_event) {
     const input =
-      toolPayload.input && typeof toolPayload.input === "object"
-        ? (toolPayload.input as Record<string, unknown>)
+      message.tool_event.input && typeof message.tool_event.input === "object"
+        ? (message.tool_event.input as Record<string, unknown>)
         : {};
-    const tool = String(toolPayload.tool ?? "tool");
+    const tool = String(message.tool_event.tool ?? "tool");
 
     if (tool === "Bash") {
       return (
         <BashCard
           command={String(input.command ?? input.cmd ?? "")}
-          output={typeof toolPayload.output === "string" ? toolPayload.output : undefined}
-          status={toolPayload.status ?? "completed"}
-        />
-      );
-    }
-
-    if ((tool === "Edit" || tool === "Write") && (input.old_string || input.new_string || input.content)) {
-      return (
-        <DiffCard
-          filePath={String(input.file_path ?? input.path ?? "untitled")}
-          oldText={String(input.old_string ?? "")}
-          newText={String(input.new_string ?? input.content ?? "")}
+          output={typeof message.tool_event.output === "string" ? message.tool_event.output : undefined}
+          status={message.tool_event.status ?? "completed"}
         />
       );
     }
@@ -97,27 +83,9 @@ function renderTranscriptNode(message: Message): ReactNode {
     return (
       <ToolCard
         tool={tool}
-        input={toolPayload.input ?? {}}
-        output={toolPayload.output}
-        status={toolPayload.status ?? "completed"}
-      />
-    );
-  }
-
-  if (message.content.startsWith("!bash:")) {
-    return <BashCard command={message.content.replace(/^!bash:/, "").trim()} status="completed" />;
-  }
-
-  if (message.content.startsWith("!finding:")) {
-    const finding = message.content.replace(/^!finding:/, "").trim().split("|");
-    return (
-      <FindingCard
-        finding={{
-          severity: (finding[0] as "P0" | "P1" | "P2" | "P3") || "P2",
-          file: finding[1] || "src/App.tsx",
-          title: finding[2] || "Finding",
-          explanation: finding[3] || "Potential issue detected.",
-        }}
+        input={message.tool_event.input ?? {}}
+        output={message.tool_event.output}
+        status={message.tool_event.status ?? "completed"}
       />
     );
   }

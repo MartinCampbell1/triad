@@ -41,51 +41,51 @@ export function Composer() {
     }
 
     clearStreamingText();
-    appendUserMessage(session.id, content, activeProvider);
-    setValue("");
 
-    if (mode === "critic") {
-      await rpc("critic.start", {
-        session_id: session.id,
-        prompt: content,
-        project_path: session.project_path,
-        writer: activeProvider,
-        model: activeModel,
-        max_rounds: 3,
-      });
-      return;
+    try {
+      if (mode === "critic") {
+        await rpc("critic.start", {
+          session_id: session.id,
+          prompt: content,
+          project_path: session.project_path,
+          writer: activeProvider,
+          model: activeModel,
+          max_rounds: 3,
+        });
+      } else if (mode === "brainstorm") {
+        await rpc("brainstorm.start", {
+          session_id: session.id,
+          prompt: content,
+          project_path: session.project_path,
+          provider: activeProvider,
+          model: activeModel,
+        });
+      } else if (mode === "delegate") {
+        await rpc("delegate.start", {
+          session_id: session.id,
+          prompt: content,
+          project_path: session.project_path,
+          provider: activeProvider,
+          model: activeModel,
+        });
+      } else {
+        await rpc("session.send", {
+          session_id: session.id,
+          content,
+          project_path: session.project_path,
+          provider: activeProvider,
+          model: activeModel,
+          mode,
+        });
+      }
+
+      appendUserMessage(session.id, content, activeProvider);
+      setValue("");
+    } catch (error) {
+      if (typeof globalThis.alert === "function") {
+        globalThis.alert(error instanceof Error ? error.message : "Failed to send message");
+      }
     }
-
-    if (mode === "brainstorm") {
-      await rpc("brainstorm.start", {
-        session_id: session.id,
-        prompt: content,
-        project_path: session.project_path,
-        provider: activeProvider,
-        model: activeModel,
-      });
-      return;
-    }
-
-    if (mode === "delegate") {
-      await rpc("delegate.start", {
-        session_id: session.id,
-        prompt: content,
-        project_path: session.project_path,
-        provider: activeProvider,
-        model: activeModel,
-      });
-      return;
-    }
-
-    await rpc("session.send", {
-      session_id: session.id,
-      content,
-      project_path: session.project_path,
-      provider: activeProvider,
-      model: activeModel,
-      mode,
-    });
   };
 
   return (
@@ -111,6 +111,7 @@ export function Composer() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                aria-label="Attach context"
                 className="grid h-8 w-8 place-items-center rounded-full border border-border-default bg-black/20 text-[16px] text-text-secondary transition-colors hover:border-border-heavy hover:text-text-primary"
               >
                 +
@@ -155,6 +156,7 @@ export function Composer() {
 
             <button
               type="button"
+              aria-label="Send message"
               onClick={() => void handleSend()}
               disabled={!value.trim()}
               className="grid h-9 w-9 place-items-center rounded-full bg-accent text-[15px] text-white shadow-[0_0_0_1px_rgba(51,156,255,0.25)] transition-opacity disabled:cursor-not-allowed disabled:opacity-35"

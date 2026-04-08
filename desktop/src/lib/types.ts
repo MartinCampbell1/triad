@@ -2,7 +2,7 @@ export type ProviderId = "claude" | "codex" | "gemini";
 export type ModeId = "solo" | "critic" | "brainstorm" | "delegate";
 export type SessionStatus = "active" | "running" | "paused" | "completed" | "failed";
 export type MessageRole = "user" | "assistant" | "system";
-export type BridgeBackendMode = "tauri" | "mock";
+export type BridgeBackendMode = "tauri" | "offline";
 
 export interface BridgeStatus {
   backendMode: BridgeBackendMode;
@@ -42,6 +42,28 @@ export interface ToolCall {
   status: "running" | "completed" | "failed";
 }
 
+export interface ReviewFinding {
+  severity: "P0" | "P1" | "P2" | "P3";
+  file: string;
+  line?: number;
+  line_range?: string;
+  title: string;
+  explanation: string;
+}
+
+export interface DiffSnapshot {
+  path: string;
+  old_text: string;
+  new_text: string;
+}
+
+export interface ToolEventPayload {
+  tool: string;
+  input: Record<string, unknown> | string;
+  output?: unknown;
+  status: "running" | "completed" | "failed";
+}
+
 export interface Message {
   id: string;
   session_id: string;
@@ -52,6 +74,11 @@ export interface Message {
   timestamp: string;
   streaming?: boolean;
   tool_calls?: ToolCall[];
+  event_type?: "tool_use" | "tool_result" | "review_finding" | "diff_snapshot" | "run_failed" | "stderr";
+  tool_event?: ToolEventPayload;
+  review_finding?: ReviewFinding;
+  diff_snapshot?: DiffSnapshot | null;
+  authoritative?: boolean;
 }
 
 export interface StreamingRun {
@@ -63,52 +90,105 @@ export interface StreamingRun {
   updated_at: string;
 }
 
-export interface ReviewFinding {
-  severity: "P0" | "P1" | "P2" | "P3";
-  file: string;
-  line_range?: string;
-  title: string;
-  explanation: string;
-}
-
 export interface DiffFile {
   path: string;
   oldContent: string;
   newContent: string;
 }
 
-export interface StreamEvent {
+interface StreamBaseEvent {
+  schema_version?: 1;
   session_id: string;
   run_id?: string;
-  type:
-    | "text_delta"
-    | "tool_use"
-    | "tool_result"
-    | "run_completed"
-    | "run_failed"
-    | "review_finding"
-    | "message_finalized"
-    | "terminal_output"
-    | "system";
   provider?: ProviderId;
   role?: string;
-  title?: string;
-  tool?: string;
+  source?: string;
+  timestamp?: string;
+  authoritative?: boolean;
+  message_id?: string;
+}
+
+export type TextDeltaEvent = StreamBaseEvent & {
+  type: "text_delta";
+  delta: string;
+};
+
+export type MessageFinalizedEvent = StreamBaseEvent & {
+  type: "message_finalized";
+  content: string;
+};
+
+export type ToolUseEvent = StreamBaseEvent & {
+  type: "tool_use";
+  tool: string;
   input?: unknown;
   output?: unknown;
-  delta?: string;
-  content?: string;
-  error?: string;
-  severity?: ReviewFinding["severity"];
-  file?: string;
+  status: "running" | "completed" | "failed";
+};
+
+export type ToolResultEvent = StreamBaseEvent & {
+  type: "tool_result";
+  tool: string;
+  input?: unknown;
+  output?: unknown;
+  status: "running" | "completed" | "failed";
+  success?: boolean;
+};
+
+export type ReviewFindingEvent = StreamBaseEvent & {
+  type: "review_finding";
+  severity: ReviewFinding["severity"];
+  file: string;
+  title: string;
+  explanation: string;
   line?: number;
   line_range?: string;
-  explanation?: string;
-  terminal_id?: string;
-  data?: string;
-  status?: "running" | "completed" | "failed";
-  success?: boolean;
-}
+};
+
+export type DiffSnapshotEvent = StreamBaseEvent & {
+  type: "diff_snapshot";
+  path: string;
+  old_text: string;
+  new_text: string;
+};
+
+export type StderrEvent = StreamBaseEvent & {
+  type: "stderr";
+  data: string;
+};
+
+export type RunCompletedEvent = StreamBaseEvent & {
+  type: "run_completed";
+};
+
+export type RunFailedEvent = StreamBaseEvent & {
+  type: "run_failed";
+  error: string;
+};
+
+export type TerminalOutputEvent = StreamBaseEvent & {
+  type: "terminal_output";
+  terminal_id: string;
+  data: string;
+};
+
+export type SystemEvent = StreamBaseEvent & {
+  type: "system";
+  content: string;
+};
+
+export type StreamEvent =
+  | TextDeltaEvent
+  | MessageFinalizedEvent
+  | ToolUseEvent
+  | ToolResultEvent
+  | ReviewFindingEvent
+  | DiffSnapshotEvent
+  | StderrEvent
+  | RunCompletedEvent
+  | RunFailedEvent
+  | TerminalOutputEvent
+  | SystemEvent;
 
 export interface StreamListener {
   (event: StreamEvent): void;

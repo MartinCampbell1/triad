@@ -1,4 +1,5 @@
 """Best-effort Claude session file watcher for authoritative assistant history."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +9,6 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -31,6 +31,7 @@ class SessionFileBinding:
     offset: int = 0
     partial_line: str = ""
     seen_message_ids: set[str] = field(default_factory=set)
+    rebind_from_end: bool = False
 
 
 class ClaudeSessionWatcher:
@@ -65,18 +66,25 @@ class ClaudeSessionWatcher:
             self._task = None
         self._bindings.clear()
 
-    def watch_session(self, session_id: str, project_path: str, *, prompt_hint: str | None = None) -> None:
+    def watch_session(
+        self, session_id: str, project_path: str, *, prompt_hint: str | None = None
+    ) -> None:
         normalized_project = str(Path(project_path).expanduser().resolve())
         existing = self._bindings.get(session_id)
         if existing is not None and existing.project_path == normalized_project:
             existing.started_at = time.time()
             if prompt_hint:
                 existing.prompt_hint = prompt_hint
+                existing.bound_file = None
+                existing.offset = 0
+                existing.partial_line = ""
+                existing.rebind_from_end = True
             return
         self._bindings[session_id] = SessionFileBinding(
             session_id=session_id,
             project_path=normalized_project,
-            project_dir=self.claude_projects_dir / self.project_path_to_storage_dir(normalized_project),
+            project_dir=self.claude_projects_dir
+            / self.project_path_to_storage_dir(normalized_project),
             started_at=time.time(),
             prompt_hint=prompt_hint or "",
         )
@@ -160,7 +168,8 @@ class ClaudeSessionWatcher:
         claimed = {
             current.bound_file
             for current in self._bindings.values()
-            if current.session_id != binding.session_id and current.bound_file is not None
+            if current.session_id != binding.session_id
+            and current.bound_file is not None
         }
         candidates = sorted(
             (
@@ -177,11 +186,23 @@ class ClaudeSessionWatcher:
         chosen = candidates[0]
         binding.bound_file = chosen
         try:
-            recent_enough = chosen.stat().st_mtime >= binding.started_at - 30
+            chosen_stat = chosen.stat()
+            recent_enough = chosen_stat.st_mtime >= binding.started_at - 30
         except OSError:
+            binding.bound_file = None
             recent_enough = False
-        binding.offset = 0 if recent_enough else chosen.stat().st_size
+            chosen_stat = None
+        binding.offset = (
+            chosen_stat.st_size
+            if binding.rebind_from_end and chosen_stat is not None
+            else (
+                0
+                if recent_enough
+                else (chosen_stat.st_size if chosen_stat is not None else 0)
+            )
+        )
         binding.partial_line = ""
+        binding.rebind_from_end = False
 
     def _parse_line(
         self,
@@ -207,11 +228,6 @@ class ClaudeSessionWatcher:
 
         message_id = self._message_identity(parsed, message, line)
         if message_id in binding.seen_message_ids:
-            return None
-
-        timestamp = self._extract_timestamp(parsed)
-        if timestamp is not None and timestamp < binding.started_at - 5:
-            binding.seen_message_ids.add(message_id)
             return None
 
         binding.seen_message_ids.add(message_id)
@@ -246,7 +262,9 @@ class ClaudeSessionWatcher:
         return "\n".join(parts).strip()
 
     @staticmethod
-    def _message_identity(parsed: dict[str, Any], message: dict[str, Any], line: str) -> str:
+    def _message_identity(
+        parsed: dict[str, Any], message: dict[str, Any], line: str
+    ) -> str:
         candidates = (
             parsed.get("uuid"),
             message.get("id"),
@@ -257,16 +275,6 @@ class ClaudeSessionWatcher:
             if value:
                 return value
         return hashlib.sha1(line.encode("utf-8", errors="replace")).hexdigest()
-
-    @staticmethod
-    def _extract_timestamp(parsed: dict[str, Any]) -> float | None:
-        raw = parsed.get("timestamp")
-        if raw in (None, ""):
-            return None
-        try:
-            return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
-        except ValueError:
-            return None
 
     @staticmethod
     def project_path_to_storage_dir(project_path: str) -> str:

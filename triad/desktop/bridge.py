@@ -1,4 +1,5 @@
 """JSON-RPC bridge between the Tauri desktop shell and Python backend."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +24,11 @@ from triad.core.providers.base import is_rate_limited
 
 from .claude_pty import ClaudePTY
 from .event_merger import EventMerger
+from .event_schema import (
+    CANONICAL_STREAM_EVENT_TYPES,
+    canonical_event_type,
+    normalize_stream_event,
+)
 from .file_watcher import ClaudeSessionWatcher
 from .hooks_listener import HooksListener, default_socket_path
 from .orchestrator import Orchestrator
@@ -103,7 +109,9 @@ class MemoryLedger:
         *,
         project_path: str | None = None,
     ) -> list[dict[str, Any]]:
-        rows = sorted(self._sessions.values(), key=lambda row: row["updated_at"], reverse=True)
+        rows = sorted(
+            self._sessions.values(), key=lambda row: row["updated_at"], reverse=True
+        )
         if project_path is not None:
             rows = [row for row in rows if row.get("project_path") == project_path]
         return [dict(row) for row in rows[:limit]]
@@ -187,7 +195,9 @@ class MemoryLedger:
     async def count_events(self, session_id: str) -> int:
         return sum(1 for event in self._events if event["session_id"] == session_id)
 
-    async def get_session_events(self, session_id: str, limit: int = 500) -> list[dict[str, Any]]:
+    async def get_session_events(
+        self, session_id: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
         rows = [
             event
             for event in sorted(self._events, key=lambda item: item["seq"])
@@ -274,6 +284,11 @@ class DesktopRuntime:
             if self._ledger is None:
                 db_path = get_default_config_path().with_name("triad.db")
                 db_path.parent.mkdir(parents=True, exist_ok=True)
+                allow_memory_ledger = os.environ.get("TRIAD_ALLOW_MEMORY_LEDGER") == "1"
+                if CoreLedger is None and not allow_memory_ledger:
+                    raise RuntimeError(
+                        "aiosqlite is required for the desktop runtime; install project dependencies or set TRIAD_ALLOW_MEMORY_LEDGER=1 for test-only runs"
+                    )
                 ledger_cls = CoreLedger or MemoryLedger
                 ledger = ledger_cls(db_path)
                 await ledger.initialize()
@@ -320,7 +335,9 @@ class DesktopRuntime:
             raise ValueError(f"Not a directory: {path}")
 
         ledger = await self.ledger()
-        await ledger.save_project(str(project_path), project_path.name, str(project_path))
+        await ledger.save_project(
+            str(project_path), project_path.name, str(project_path)
+        )
         return {
             "path": str(project_path),
             "name": project_path.name,
@@ -330,15 +347,22 @@ class DesktopRuntime:
     async def list_projects(self) -> list[dict[str, Any]]:
         ledger = await self.ledger()
         rows = await ledger.list_projects()
-        return [
-            {
-                "path": row["path"],
-                "name": row.get("name") or row.get("display_name") or Path(row["path"]).name,
-                "git_root": row["git_root"],
-                "last_opened_at": self._format_ts(row.get("last_opened_at")),
-            }
-            for row in rows
-        ]
+        projects: list[dict[str, Any]] = []
+        for row in rows:
+            project_path = Path(str(row["path"])).expanduser().resolve()
+            if not project_path.is_dir():
+                continue
+            projects.append(
+                {
+                    "path": str(project_path),
+                    "name": row.get("name")
+                    or row.get("display_name")
+                    or project_path.name,
+                    "git_root": str(Path(str(row["git_root"])).expanduser().resolve()),
+                    "last_opened_at": self._format_ts(row.get("last_opened_at")),
+                }
+            )
+        return projects
 
     async def create_session(
         self,
@@ -387,7 +411,9 @@ class DesktopRuntime:
         session_row = await ledger.get_session(session_id)
         return self._session_payload(runtime, session_row=session_row)
 
-    async def list_sessions(self, project_path: str | None = None) -> list[dict[str, Any]]:
+    async def list_sessions(
+        self, project_path: str | None = None
+    ) -> list[dict[str, Any]]:
         ledger = await self.ledger()
         target_project = (
             str(Path(project_path).expanduser().resolve()) if project_path else None
@@ -402,7 +428,10 @@ class DesktopRuntime:
                 {
                     "id": row["id"],
                     "project_path": row_project,
-                    "title": row.get("title") or row.get("task") or config.get("title") or "New session",
+                    "title": row.get("title")
+                    or row.get("task")
+                    or config.get("title")
+                    or "New session",
                     "mode": row.get("mode"),
                     "status": row.get("status"),
                     "created_at": self._format_ts(row.get("created_at")),
@@ -418,11 +447,20 @@ class DesktopRuntime:
         sessions = await self.list_sessions()
         last_project = projects[0]["path"] if projects else None
         preferred_session = (
-            next((session for session in sessions if session["project_path"] == last_project), None)
+            next(
+                (
+                    session
+                    for session in sessions
+                    if session["project_path"] == last_project
+                ),
+                None,
+            )
             if last_project
             else None
         )
-        last_session_id = (preferred_session or (sessions[0] if sessions else None) or {}).get("id")
+        last_session_id = (
+            preferred_session or (sessions[0] if sessions else None) or {}
+        ).get("id")
         return {
             "projects": projects,
             "sessions": sessions,
@@ -442,7 +480,9 @@ class DesktopRuntime:
         if row is None:
             raise ValueError(f"Unknown session: {session_id}")
 
-        runtime = self._sessions.get(session_id) or await self._hydrate_session(session_id)
+        runtime = self._sessions.get(session_id) or await self._hydrate_session(
+            session_id
+        )
         self._sessions[session_id] = runtime
         normalized_format = format_name.strip().lower() or "archive"
         target_path = self._resolve_export_path(
@@ -459,7 +499,9 @@ class DesktopRuntime:
                 runtime=runtime,
                 session_row=row,
             )
-            target_path.write_text(json.dumps(archive, indent=2, ensure_ascii=False) + "\n")
+            target_path.write_text(
+                json.dumps(archive, indent=2, ensure_ascii=False) + "\n"
+            )
         elif normalized_format == "markdown":
             markdown = await self._render_session_markdown(
                 session_id,
@@ -487,11 +529,18 @@ class DesktopRuntime:
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid session archive: {exc}") from exc
 
+        if archive.get("type") != "triad_desktop_session_archive":
+            raise ValueError("Invalid session archive: unsupported type")
+        if int(archive.get("version") or 0) != 1:
+            raise ValueError("Invalid session archive: unsupported version")
+
         session_meta = archive.get("session")
         if not isinstance(session_meta, dict):
             raise ValueError("Invalid session archive: missing session payload")
 
-        project_meta = archive.get("project") if isinstance(archive.get("project"), dict) else {}
+        project_meta = (
+            archive.get("project") if isinstance(archive.get("project"), dict) else {}
+        )
         project_path = self._normalize_import_path(
             str(
                 session_meta.get("project_path")
@@ -499,18 +548,25 @@ class DesktopRuntime:
                 or os.getcwd()
             )
         )
-        project_name = str(project_meta.get("name") or Path(project_path).name or "Imported Project")
-        git_root = self._normalize_import_path(str(project_meta.get("git_root") or project_path))
+        project_name = str(
+            project_meta.get("name") or Path(project_path).name or "Imported Project"
+        )
+        git_root = self._normalize_import_path(
+            str(project_meta.get("git_root") or project_path)
+        )
 
         provider = str(session_meta.get("provider") or "claude")
         mode = str(session_meta.get("mode") or "solo")
-        title = str(session_meta.get("title") or session_meta.get("task") or source_path.stem)
+        title = str(
+            session_meta.get("title") or session_meta.get("task") or source_path.stem
+        )
         task = str(session_meta.get("task") or title)
         original_status = str(session_meta.get("status") or "completed")
-        imported_status = "paused" if original_status in {"active", "running"} else original_status
+        imported_status = (
+            "paused" if original_status in {"active", "running"} else original_status
+        )
         session_config = self._load_config_json(
-            session_meta.get("config")
-            or session_meta.get("config_json")
+            session_meta.get("config") or session_meta.get("config_json")
         )
         session_config.update(
             {
@@ -587,7 +643,9 @@ class DesktopRuntime:
         if source_row is None:
             raise ValueError(f"Unknown session: {source_session_id}")
 
-        source_runtime = self._sessions.get(source_session_id) or await self._hydrate_session(source_session_id)
+        source_runtime = self._sessions.get(
+            source_session_id
+        ) or await self._hydrate_session(source_session_id)
         source_config = self._load_config_json(source_row.get("config_json"))
         source_title = str(
             source_row.get("title")
@@ -596,7 +654,9 @@ class DesktopRuntime:
             or "Session"
         )
         source_mode = str(source_row.get("mode") or source_runtime.mode or "solo")
-        source_provider = str(source_config.get("provider") or source_runtime.provider or "claude")
+        source_provider = str(
+            source_config.get("provider") or source_runtime.provider or "claude"
+        )
         source_project = str(
             Path(
                 source_row.get("project_path")
@@ -663,7 +723,11 @@ class DesktopRuntime:
             data = dict(event.get("data") or {})
             content = str(event.get("content") or "")
             if not data and content:
-                data = {"error": content} if event_type == "run_failed" else {"content": content}
+                data = (
+                    {"error": content}
+                    if event_type == "run_failed"
+                    else {"content": content}
+                )
 
             await ledger.append_event(
                 fork_id,
@@ -673,7 +737,9 @@ class DesktopRuntime:
                 role=str(event.get("role")) if event.get("role") else None,
                 agent=str(event.get("agent")) if event.get("agent") else None,
                 content=content or None,
-                artifact_id=str(event.get("artifact_id")) if event.get("artifact_id") else None,
+                artifact_id=str(event.get("artifact_id"))
+                if event.get("artifact_id")
+                else None,
             )
 
         fork_note = f'Continued from "{source_title}"'
@@ -775,8 +841,14 @@ class DesktopRuntime:
         )
         self._background_tasks.add(task)
         self._session_tasks.setdefault(session_id, set()).add(task)
-        task.add_done_callback(lambda completed: self._discard_task(session_id, completed))
-        return {"status": "sent", "session_id": session_id, "provider": selected_provider}
+        task.add_done_callback(
+            lambda completed: self._discard_task(session_id, completed)
+        )
+        return {
+            "status": "sent",
+            "session_id": session_id,
+            "provider": selected_provider,
+        }
 
     async def stop_session(self, session_id: str) -> dict[str, Any]:
         runtime = self._sessions.get(session_id)
@@ -797,7 +869,9 @@ class DesktopRuntime:
         row = await ledger.get_session(session_id)
         if row is None:
             raise ValueError(f"Unknown session: {session_id}")
-        runtime = self._sessions.get(session_id) or await self._hydrate_session(session_id)
+        runtime = self._sessions.get(session_id) or await self._hydrate_session(
+            session_id
+        )
         self._sessions[session_id] = runtime
         session_payload = self._session_payload(runtime, session_row=row)
         session_payload["message_count"] = await self._count_messages(session_id)
@@ -888,7 +962,9 @@ class DesktopRuntime:
             mode="critic",
             provider=selected_writer,
         )
-        selected_critic = (critic_provider or self._default_critic_provider(selected_writer)).strip()
+        selected_critic = (
+            critic_provider or self._default_critic_provider(selected_writer)
+        ).strip()
 
         async def run() -> None:
             orchestrator = await self.get_orchestrator()
@@ -905,7 +981,9 @@ class DesktopRuntime:
         task = asyncio.create_task(run())
         self._background_tasks.add(task)
         self._session_tasks.setdefault(session_id, set()).add(task)
-        task.add_done_callback(lambda completed: self._discard_task(session_id, completed))
+        task.add_done_callback(
+            lambda completed: self._discard_task(session_id, completed)
+        )
         return {
             "status": "started",
             "session_id": session_id,
@@ -931,7 +1009,9 @@ class DesktopRuntime:
             provider=primary_provider,
         )
         orchestrator = await self.get_orchestrator()
-        ideators, moderator = orchestrator.default_brainstorm_providers(primary_provider)
+        ideators, moderator = orchestrator.default_brainstorm_providers(
+            primary_provider
+        )
 
         async def run() -> None:
             await orchestrator.run_brainstorm(
@@ -947,7 +1027,9 @@ class DesktopRuntime:
         task = asyncio.create_task(run())
         self._background_tasks.add(task)
         self._session_tasks.setdefault(session_id, set()).add(task)
-        task.add_done_callback(lambda completed: self._discard_task(session_id, completed))
+        task.add_done_callback(
+            lambda completed: self._discard_task(session_id, completed)
+        )
         return {
             "status": "started",
             "session_id": session_id,
@@ -987,7 +1069,9 @@ class DesktopRuntime:
         task = asyncio.create_task(run())
         self._background_tasks.add(task)
         self._session_tasks.setdefault(session_id, set()).add(task)
-        task.add_done_callback(lambda completed: self._discard_task(session_id, completed))
+        task.add_done_callback(
+            lambda completed: self._discard_task(session_id, completed)
+        )
         return {
             "status": "started",
             "session_id": session_id,
@@ -1007,7 +1091,9 @@ class DesktopRuntime:
         self._file_watcher = ClaudeSessionWatcher(on_event=self._event_merger.handle)
         await self._file_watcher.start()
 
-    async def _handle_stream_event(self, session_id: str, event: dict[str, Any]) -> None:
+    async def _handle_stream_event(
+        self, session_id: str, event: dict[str, Any]
+    ) -> None:
         normalized = dict(event)
         normalized.setdefault("session_id", session_id)
         if self._event_merger is None:
@@ -1067,8 +1153,26 @@ class DesktopRuntime:
                             **payload,
                         }
                     )
+                elif event.kind == "tool_result":
+                    payload = event.data or {}
+                    await self.emit_ui_event(
+                        {
+                            "session_id": session_id,
+                            "type": "tool_result",
+                            "provider": provider,
+                            **payload,
+                        }
+                    )
                 elif event.kind == "error" and event.text:
                     errors.append(event.text)
+                    await self.emit_ui_event(
+                        {
+                            "session_id": session_id,
+                            "type": "stderr",
+                            "provider": provider,
+                            "data": event.text,
+                        }
+                    )
                 elif event.kind == "done":
                     payload = event.data or {}
                     raw_returncode = payload.get("returncode")
@@ -1077,7 +1181,9 @@ class DesktopRuntime:
 
             combined_error = "\n".join(part for part in errors if part).strip()
             if combined_error or returncode not in (None, 0):
-                error_text = combined_error or f"{provider} exited with code {returncode}"
+                error_text = (
+                    combined_error or f"{provider} exited with code {returncode}"
+                )
                 if is_rate_limited(error_text):
                     self.account_manager.mark_rate_limited(provider, profile.name)
                 await self.emit_ui_event(
@@ -1129,9 +1235,11 @@ class DesktopRuntime:
 
     async def get_terminal_manager(self) -> TerminalManager:
         if self._terminal_manager is None:
+
             async def on_output(terminal_id: str, data: bytes) -> None:
                 await self.emit_ui_event(
                     {
+                        "session_id": "__terminal__",
                         "type": "terminal_output",
                         "terminal_id": terminal_id,
                         "data": base64.b64encode(data).decode("ascii"),
@@ -1161,14 +1269,21 @@ class DesktopRuntime:
 
         config = self._load_config_json(row.get("config_json"))
         resolved_project = str(
-            Path(project_path or config.get("project_path") or os.getcwd()).expanduser().resolve()
+            Path(project_path or config.get("project_path") or os.getcwd())
+            .expanduser()
+            .resolve()
         )
         return SessionRuntime(
             session_id=session_id,
             project_path=resolved_project,
             mode=str(row.get("mode") or "solo"),
             provider=str(config.get("provider") or "claude"),
-            title=str(row.get("title") or row.get("task") or config.get("title") or "Recovered session"),
+            title=str(
+                row.get("title")
+                or row.get("task")
+                or config.get("title")
+                or "Recovered session"
+            ),
         )
 
     async def _count_events(self, session_id: str) -> int:
@@ -1188,16 +1303,27 @@ class DesktopRuntime:
     async def _count_messages(self, session_id: str) -> int:
         events = await self._get_session_events(session_id, limit=2000)
         if events:
-            return sum(
-                1
-                for event in events
-                if event.get("type") in {"user.message", "message_finalized"}
-            )
+            finalized_ids: set[str] = set()
+            count = 0
+            for event in events:
+                if event.get("type") == "user.message":
+                    count += 1
+                    continue
+                if event.get("type") != "message_finalized":
+                    continue
+                data = event.get("data") or {}
+                message_id = str(data.get("message_id") or event.get("id"))
+                if message_id in finalized_ids:
+                    continue
+                finalized_ids.add(message_id)
+                count += 1
+            return count
         return await self._count_events(session_id)
 
     async def _build_messages(self, session_id: str) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         events = await self._get_session_events(session_id, limit=2000)
+        assistant_indexes: dict[str, int] = {}
         for event in events:
             event_type = str(event.get("type", ""))
             data = event.get("data") or {}
@@ -1219,17 +1345,22 @@ class DesktopRuntime:
             elif event_type == "message_finalized":
                 content = str(data.get("content") or event.get("content") or "")
                 if content:
-                    messages.append(
-                        {
-                            "id": f"msg_assistant_{event['id']}",
-                            "session_id": session_id,
-                            "role": "assistant",
-                            "content": content,
-                            "provider": provider,
-                            "agent_role": event.get("role"),
-                            "timestamp": timestamp,
-                        }
-                    )
+                    message_key = str(data.get("message_id") or event.get("id"))
+                    message = {
+                        "id": f"msg_assistant_{message_key}",
+                        "session_id": session_id,
+                        "role": "assistant",
+                        "content": content,
+                        "provider": provider,
+                        "agent_role": event.get("role"),
+                        "timestamp": timestamp,
+                    }
+                    existing_index = assistant_indexes.get(message_key)
+                    if existing_index is None:
+                        assistant_indexes[message_key] = len(messages)
+                        messages.append(message)
+                    else:
+                        messages[existing_index] = message
             elif event_type == "system":
                 content = str(data.get("content") or event.get("content") or "")
                 if content:
@@ -1243,26 +1374,136 @@ class DesktopRuntime:
                             "timestamp": timestamp,
                         }
                     )
+            elif event_type == "diff_snapshot":
+                messages.append(
+                    {
+                        "id": f"msg_diff_{event['id']}",
+                        "session_id": session_id,
+                        "role": "system",
+                        "content": str(data.get("path") or "Diff snapshot"),
+                        "provider": provider,
+                        "timestamp": timestamp,
+                        "event_type": "diff_snapshot",
+                        "diff_snapshot": {
+                            "path": str(data.get("path") or ""),
+                            "old_text": str(data.get("old_text") or ""),
+                            "new_text": str(data.get("new_text") or ""),
+                        },
+                    }
+                )
             elif event_type == "tool_use":
+                tool_name = str(data.get("tool") or "tool")
+                tool_input = data.get("input") or {}
+                tool_input_map = tool_input if isinstance(tool_input, dict) else {}
+                diff_snapshot = None
+                if tool_name in {"Edit", "Write"}:
+                    old_text = str(
+                        data.get("old_text")
+                        or data.get("old_string")
+                        or tool_input_map.get("old_text")
+                        or tool_input_map.get("old_string")
+                        or ""
+                    )
+                    new_text = str(
+                        data.get("new_text")
+                        or data.get("new_string")
+                        or tool_input_map.get("new_text")
+                        or tool_input_map.get("new_string")
+                        or tool_input_map.get("content")
+                        or data.get("content")
+                        or ""
+                    )
+                    path = str(
+                        data.get("path")
+                        or data.get("file_path")
+                        or tool_input_map.get("target_file")
+                        or tool_input_map.get("path")
+                        or tool_input_map.get("file_path")
+                        or ""
+                    )
+                    if path and (old_text or new_text):
+                        diff_snapshot = {
+                            "path": path,
+                            "old_text": old_text,
+                            "new_text": new_text,
+                        }
                 messages.append(
                     {
                         "id": f"msg_tool_{event['id']}",
                         "session_id": session_id,
                         "role": "system",
-                        "content": "!tool:" + json.dumps(data, ensure_ascii=False),
+                        "content": str(data.get("content") or tool_name),
                         "provider": provider,
                         "timestamp": timestamp,
+                        "event_type": "tool_use",
+                        "tool_event": {
+                            "tool": tool_name,
+                            "input": tool_input,
+                            "output": data.get("output"),
+                            "status": str(data.get("status") or "running"),
+                        },
+                        "diff_snapshot": diff_snapshot,
                     }
                 )
             elif event_type == "tool_result":
+                tool_name = str(data.get("tool") or "tool")
+                tool_input = data.get("input") or {}
+                tool_input_map = tool_input if isinstance(tool_input, dict) else {}
+                diff_snapshot = None
+                if tool_name in {"Edit", "Write"}:
+                    old_text = str(
+                        data.get("old_text")
+                        or data.get("old_string")
+                        or tool_input_map.get("old_text")
+                        or tool_input_map.get("old_string")
+                        or ""
+                    )
+                    new_text = str(
+                        data.get("new_text")
+                        or data.get("new_string")
+                        or tool_input_map.get("new_text")
+                        or tool_input_map.get("new_string")
+                        or tool_input_map.get("content")
+                        or data.get("content")
+                        or ""
+                    )
+                    path = str(
+                        data.get("path")
+                        or data.get("file_path")
+                        or tool_input_map.get("target_file")
+                        or tool_input_map.get("path")
+                        or tool_input_map.get("file_path")
+                        or ""
+                    )
+                    if path and (old_text or new_text):
+                        diff_snapshot = {
+                            "path": path,
+                            "old_text": old_text,
+                            "new_text": new_text,
+                        }
                 messages.append(
                     {
                         "id": f"msg_tool_result_{event['id']}",
                         "session_id": session_id,
                         "role": "system",
-                        "content": "!tool:" + json.dumps(data, ensure_ascii=False),
+                        "content": str(data.get("content") or tool_name),
                         "provider": provider,
                         "timestamp": timestamp,
+                        "event_type": "tool_result",
+                        "tool_event": {
+                            "tool": tool_name,
+                            "input": tool_input,
+                            "output": data.get("output"),
+                            "status": str(
+                                data.get("status")
+                                or (
+                                    "failed"
+                                    if data.get("success") is False
+                                    else "completed"
+                                )
+                            ),
+                        },
+                        "diff_snapshot": diff_snapshot,
                     }
                 )
             elif event_type == "review_finding":
@@ -1271,14 +1512,20 @@ class DesktopRuntime:
                         "id": f"msg_finding_{event['id']}",
                         "session_id": session_id,
                         "role": "system",
-                        "content": (
-                            f"!finding:{data.get('severity', 'P2')}|"
-                            f"{data.get('file', '')}|"
-                            f"{data.get('title', 'Finding')}|"
-                            f"{data.get('explanation', '')}"
-                        ),
+                        "content": str(data.get("title") or "Finding"),
                         "provider": provider,
                         "timestamp": timestamp,
+                        "event_type": "review_finding",
+                        "review_finding": {
+                            "severity": str(data.get("severity") or "P2"),
+                            "file": str(data.get("file") or ""),
+                            "line": data.get("line"),
+                            "line_range": str(data.get("line_range") or "") or None,
+                            "title": str(data.get("title") or "Finding"),
+                            "explanation": str(
+                                data.get("explanation") or "Potential issue detected."
+                            ),
+                        },
                     }
                 )
             elif event_type == "run_failed":
@@ -1287,14 +1534,33 @@ class DesktopRuntime:
                         "id": f"msg_error_{event['id']}",
                         "session_id": session_id,
                         "role": "system",
-                        "content": str(data.get("error") or event.get("content") or "Run failed"),
+                        "content": str(
+                            data.get("error") or event.get("content") or "Run failed"
+                        ),
                         "provider": provider,
                         "timestamp": timestamp,
+                        "event_type": "run_failed",
                     }
                 )
+            elif event_type == "stderr":
+                content = str(data.get("data") or event.get("content") or "")
+                if content:
+                    messages.append(
+                        {
+                            "id": f"msg_stderr_{event['id']}",
+                            "session_id": session_id,
+                            "role": "system",
+                            "content": content,
+                            "provider": provider,
+                            "timestamp": timestamp,
+                            "event_type": "stderr",
+                        }
+                    )
         return messages
 
-    async def _get_session_events(self, session_id: str, limit: int = 500) -> list[dict[str, Any]]:
+    async def _get_session_events(
+        self, session_id: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
         ledger = await self.ledger()
         get_session_events = getattr(ledger, "get_session_events", None)
         if not callable(get_session_events):
@@ -1462,7 +1728,9 @@ class DesktopRuntime:
             return
 
         ledger = await self.ledger()
-        normalized_events = sorted(events, key=lambda event: int(event.get("seq", 0) or 0))
+        normalized_events = sorted(
+            events, key=lambda event: int(event.get("seq", 0) or 0)
+        )
         if isinstance(ledger, MemoryLedger):
             next_event_id = len(ledger._events) + 1
             last_ts: float | None = None
@@ -1475,13 +1743,25 @@ class DesktopRuntime:
                         "session_id": session_id,
                         "seq": index,
                         "event_type": str(event.get("type") or "system"),
-                        "agent": str(event.get("agent")) if event.get("agent") else None,
-                        "content": str(event.get("content")) if event.get("content") is not None else None,
-                        "artifact_id": str(event.get("artifact_id")) if event.get("artifact_id") else None,
-                        "run_id": str(event.get("run_id")) if event.get("run_id") else None,
-                        "provider": str(event.get("provider")) if event.get("provider") else None,
+                        "agent": str(event.get("agent"))
+                        if event.get("agent")
+                        else None,
+                        "content": str(event.get("content"))
+                        if event.get("content") is not None
+                        else None,
+                        "artifact_id": str(event.get("artifact_id"))
+                        if event.get("artifact_id")
+                        else None,
+                        "run_id": str(event.get("run_id"))
+                        if event.get("run_id")
+                        else None,
+                        "provider": str(event.get("provider"))
+                        if event.get("provider")
+                        else None,
                         "role": str(event.get("role")) if event.get("role") else None,
-                        "data_json": json.dumps(event.get("data") or {}, ensure_ascii=False),
+                        "data_json": json.dumps(
+                            event.get("data") or {}, ensure_ascii=False
+                        ),
                         "timestamp": str(event.get("timestamp") or self._format_ts(ts)),
                         "ts": ts,
                     }
@@ -1499,12 +1779,18 @@ class DesktopRuntime:
                     session_id,
                     str(event.get("type") or "system"),
                     dict(event.get("data") or {}),
-                    provider=str(event.get("provider")) if event.get("provider") else None,
+                    provider=str(event.get("provider"))
+                    if event.get("provider")
+                    else None,
                     role=str(event.get("role")) if event.get("role") else None,
                     run_id=str(event.get("run_id")) if event.get("run_id") else None,
                     agent=str(event.get("agent")) if event.get("agent") else None,
-                    content=str(event.get("content")) if event.get("content") is not None else None,
-                    artifact_id=str(event.get("artifact_id")) if event.get("artifact_id") else None,
+                    content=str(event.get("content"))
+                    if event.get("content") is not None
+                    else None,
+                    artifact_id=str(event.get("artifact_id"))
+                    if event.get("artifact_id")
+                    else None,
                 )
             return
 
@@ -1532,7 +1818,9 @@ class DesktopRuntime:
                     index,
                     str(event.get("type") or "system"),
                     str(event.get("agent")) if event.get("agent") else None,
-                    str(event.get("content")) if event.get("content") is not None else None,
+                    str(event.get("content"))
+                    if event.get("content") is not None
+                    else None,
                     str(event.get("artifact_id")) if event.get("artifact_id") else None,
                     str(event.get("run_id")) if event.get("run_id") else None,
                     str(event.get("provider")) if event.get("provider") else None,
@@ -1604,32 +1892,54 @@ class DesktopRuntime:
         await db.commit()
 
     async def _persist_ui_event(self, event: dict[str, Any]) -> None:
-        session_id = str(event.get("session_id", "")).strip()
-        if not session_id:
+        normalized_event = normalize_stream_event(event)
+        session_id = str(normalized_event.get("session_id", "")).strip()
+        if not session_id or session_id == "__terminal__":
             return
         ledger = await self.ledger()
-        event_type = str(event.get("type", "system"))
-        provider = event.get("provider")
-        role = event.get("role")
+        event_type = str(normalized_event.get("type", "system"))
+        provider = normalized_event.get("provider")
+        role = normalized_event.get("role")
         runtime = self._sessions.get(session_id)
         await ledger.append_event(
             session_id,
             event_type,
-            event,
+            normalized_event,
             provider=str(provider) if provider else None,
             role=str(role) if role else None,
-            run_id=str(event.get("run_id")) if event.get("run_id") else None,
+            run_id=str(normalized_event.get("run_id"))
+            if normalized_event.get("run_id")
+            else None,
             agent=str(provider) if provider else None,
-            content=str(event.get("content") or event.get("delta") or ""),
+            content=str(
+                normalized_event.get("content")
+                or normalized_event.get("delta")
+                or normalized_event.get("data")
+                or ""
+            ),
         )
         if runtime is not None and provider:
             runtime.provider = str(provider)
         if runtime is not None and event_type == "text_delta":
             runtime.state = "running"
-        if event_type in {"message_finalized", "tool_use", "tool_result", "review_finding", "system"}:
-            await ledger.update_session_status(session_id, "running")
-            if runtime is not None:
-                runtime.state = "running"
+        if event_type in {
+            "message_finalized",
+            "tool_use",
+            "tool_result",
+            "review_finding",
+            "system",
+        }:
+            if (
+                event_type == "message_finalized"
+                and normalized_event.get("authoritative")
+                and runtime is not None
+                and runtime.state in {"completed", "failed"}
+            ):
+                await ledger.update_session_status(session_id, runtime.state)
+            else:
+                await ledger.update_session_status(session_id, "running")
+                if runtime is not None:
+                    runtime.state = "running"
         elif event_type == "run_completed":
             await ledger.update_session_status(session_id, "completed")
             if runtime is not None:
@@ -1640,8 +1950,9 @@ class DesktopRuntime:
                 runtime.state = "failed"
 
     async def emit_ui_event(self, event: dict[str, Any]) -> None:
-        await self._persist_ui_event(event)
-        await bridge.notify("event.stream", event)
+        normalized_event = normalize_stream_event(event)
+        await self._persist_ui_event(normalized_event)
+        await bridge.notify("event.stream", normalized_event)
 
     async def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
         normalized = query.strip()
@@ -1689,8 +2000,14 @@ class DesktopRuntime:
                 for runtime in self._sessions.values()
             ],
             "active_terminals": active_terminals,
-            "active_file_watches": self._file_watcher.snapshot() if self._file_watcher is not None else [],
-            "hooks_socket": str(self._hook_listener.socket_path if self._hook_listener else default_socket_path()),
+            "active_file_watches": self._file_watcher.snapshot()
+            if self._file_watcher is not None
+            else [],
+            "hooks_socket": str(
+                self._hook_listener.socket_path
+                if self._hook_listener
+                else default_socket_path()
+            ),
         }
 
     @staticmethod
@@ -1740,7 +2057,11 @@ class DesktopRuntime:
             return str(value)
 
     def _default_critic_provider(self, writer_provider: str) -> str:
-        candidates = [provider for provider in ("codex", "claude", "gemini") if provider != writer_provider]
+        candidates = [
+            provider
+            for provider in ("codex", "claude", "gemini")
+            if provider != writer_provider
+        ]
         for provider in candidates:
             if self.account_manager.pools.get(provider):
                 return provider
@@ -1767,7 +2088,9 @@ class DesktopRuntime:
                 {
                     "event_id": int(event["id"]),
                     "session_id": str(event["session_id"]),
-                    "session_title": str(session.get("title") or session.get("task") or "Session"),
+                    "session_title": str(
+                        session.get("title") or session.get("task") or "Session"
+                    ),
                     "project_path": str(session.get("project_path") or ""),
                     "snippet": snippet,
                 }
@@ -1811,20 +2134,111 @@ class DesktopRuntime:
             for index, item in enumerate(raw_events, start=1):
                 if not isinstance(item, dict):
                     continue
-                data = item.get("data") if isinstance(item.get("data"), dict) else {}
+                event_type = str(item.get("type") or "system")
+                if event_type == "user.message":
+                    data = (
+                        item.get("data") if isinstance(item.get("data"), dict) else {}
+                    )
+                    normalized.append(
+                        {
+                            "seq": int(item.get("seq") or index),
+                            "type": event_type,
+                            "provider": str(item.get("provider"))
+                            if item.get("provider")
+                            else None,
+                            "role": str(item.get("role")) if item.get("role") else None,
+                            "agent": str(item.get("agent"))
+                            if item.get("agent")
+                            else None,
+                            "run_id": str(item.get("run_id"))
+                            if item.get("run_id")
+                            else None,
+                            "content": str(item.get("content"))
+                            if item.get("content") is not None
+                            else None,
+                            "artifact_id": str(item.get("artifact_id"))
+                            if item.get("artifact_id")
+                            else None,
+                            "timestamp": item.get("timestamp"),
+                            "ts": item.get("ts"),
+                            "data": data,
+                        }
+                    )
+                    continue
+
+                if canonical_event_type(event_type) not in CANONICAL_STREAM_EVENT_TYPES:
+                    data = (
+                        item.get("data") if isinstance(item.get("data"), dict) else {}
+                    )
+                    normalized.append(
+                        {
+                            "seq": int(item.get("seq") or index),
+                            "type": event_type,
+                            "provider": str(item.get("provider"))
+                            if item.get("provider")
+                            else None,
+                            "role": str(item.get("role")) if item.get("role") else None,
+                            "agent": str(item.get("agent"))
+                            if item.get("agent")
+                            else None,
+                            "run_id": str(item.get("run_id"))
+                            if item.get("run_id")
+                            else None,
+                            "content": str(item.get("content"))
+                            if item.get("content") is not None
+                            else None,
+                            "artifact_id": str(item.get("artifact_id"))
+                            if item.get("artifact_id")
+                            else None,
+                            "timestamp": item.get("timestamp"),
+                            "ts": item.get("ts"),
+                            "data": data,
+                        }
+                    )
+                    continue
+
+                normalized_event = normalize_stream_event(
+                    {
+                        **(
+                            item.get("data")
+                            if isinstance(item.get("data"), dict)
+                            else {}
+                        ),
+                        **item,
+                        "session_id": str(item.get("session_id") or "imported-session"),
+                        "type": event_type,
+                        "provider": item.get("provider"),
+                        "role": item.get("role"),
+                        "timestamp": item.get("timestamp"),
+                        "message_id": item.get("message_id")
+                        or (item.get("data") or {}).get("message_id")
+                        if isinstance(item.get("data"), dict)
+                        else item.get("message_id"),
+                    }
+                )
                 normalized.append(
                     {
                         "seq": int(item.get("seq") or index),
-                        "type": str(item.get("type") or "system"),
-                        "provider": str(item.get("provider")) if item.get("provider") else None,
-                        "role": str(item.get("role")) if item.get("role") else None,
+                        "type": normalized_event["type"],
+                        "provider": str(normalized_event.get("provider"))
+                        if normalized_event.get("provider")
+                        else None,
+                        "role": str(normalized_event.get("role"))
+                        if normalized_event.get("role")
+                        else None,
                         "agent": str(item.get("agent")) if item.get("agent") else None,
-                        "run_id": str(item.get("run_id")) if item.get("run_id") else None,
-                        "content": str(item.get("content")) if item.get("content") is not None else None,
-                        "artifact_id": str(item.get("artifact_id")) if item.get("artifact_id") else None,
-                        "timestamp": item.get("timestamp"),
+                        "run_id": str(normalized_event.get("run_id"))
+                        if normalized_event.get("run_id")
+                        else None,
+                        "content": str(normalized_event.get("content"))
+                        if normalized_event.get("content") is not None
+                        else None,
+                        "artifact_id": str(item.get("artifact_id"))
+                        if item.get("artifact_id")
+                        else None,
+                        "timestamp": normalized_event.get("timestamp"),
                         "ts": item.get("ts"),
-                        "data": data,
+                        "data": normalized_event,
                     }
                 )
             return normalized
@@ -1848,9 +2262,15 @@ class DesktopRuntime:
                 {
                     "seq": index,
                     "type": event_type,
-                    "provider": str(item.get("provider")) if item.get("provider") else None,
-                    "role": str(item.get("agent_role")) if item.get("agent_role") else None,
-                    "agent": str(item.get("provider")) if item.get("provider") else None,
+                    "provider": str(item.get("provider"))
+                    if item.get("provider")
+                    else None,
+                    "role": str(item.get("agent_role"))
+                    if item.get("agent_role")
+                    else None,
+                    "agent": str(item.get("provider"))
+                    if item.get("provider")
+                    else None,
                     "run_id": None,
                     "content": content,
                     "artifact_id": None,
@@ -1922,7 +2342,9 @@ class JsonRpcBridge:
         await self.runtime.shutdown()
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
-        await self._write_message({"jsonrpc": "2.0", "method": method, "params": params})
+        await self._write_message(
+            {"jsonrpc": "2.0", "method": method, "params": params}
+        )
 
     async def _handle_line(self, line: str) -> None:
         try:
@@ -1942,7 +2364,10 @@ class JsonRpcBridge:
                     {
                         "jsonrpc": "2.0",
                         "id": request_id,
-                        "error": {"code": -32601, "message": f"Method not found: {method}"},
+                        "error": {
+                            "code": -32601,
+                            "message": f"Method not found: {method}",
+                        },
                     }
                 )
             return
@@ -1961,7 +2386,9 @@ class JsonRpcBridge:
             return
 
         if request_id is not None:
-            await self._write_message({"jsonrpc": "2.0", "id": request_id, "result": result})
+            await self._write_message(
+                {"jsonrpc": "2.0", "id": request_id, "result": result}
+            )
 
     async def _write_message(self, message: dict[str, Any]) -> None:
         payload = json.dumps(message, ensure_ascii=False)

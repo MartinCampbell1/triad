@@ -57,7 +57,7 @@ function bridgeLabel(connected: boolean, reconnecting: boolean, started: boolean
   if (!started) return "Bridge starting";
   if (reconnecting) return "Bridge retrying";
   if (connected) return "Bridge live";
-  return backendMode === "mock" ? "Bridge mock" : "Bridge offline";
+  return backendMode === "tauri" ? "Bridge live" : "Bridge offline";
 }
 
 function ShellButton({

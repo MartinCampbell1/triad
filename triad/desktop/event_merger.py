@@ -1,8 +1,10 @@
 """Merge low-level desktop events into UI-friendly stream events."""
+
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -19,6 +21,9 @@ class EventMerger:
     _text_buffer: dict[str, str] = field(default_factory=dict)
     _pending_completion: dict[str, asyncio.Task] = field(default_factory=dict)
     _authoritative_ids: set[str] = field(default_factory=set)
+    _provisional_message_ids: dict[str, str] = field(default_factory=dict)
+    _failed_sessions: set[str] = field(default_factory=set)
+    _completed_sessions: set[str] = field(default_factory=set)
 
     async def handle(self, event: dict[str, Any]) -> None:
         source = str(event.get("source", "unknown"))
@@ -58,6 +63,8 @@ class EventMerger:
             pending = self._text_buffer.pop(sid, "").strip()
             if not pending:
                 continue
+            message_id = f"provisional:{sid}:{uuid.uuid4().hex[:8]}"
+            self._provisional_message_ids[sid] = message_id
             await self._emit(
                 {
                     "type": "message_finalized",
@@ -65,6 +72,7 @@ class EventMerger:
                     "provider": "claude",
                     "source": "pty",
                     "content": pending,
+                    "message_id": message_id,
                 }
             )
         if session_id is None:
@@ -90,7 +98,11 @@ class EventMerger:
             delta = str(event.get("delta", ""))
             if not delta:
                 return
-            self._text_buffer[session_id] = self._text_buffer.get(session_id, "") + delta
+            self._failed_sessions.discard(session_id)
+            self._completed_sessions.discard(session_id)
+            self._text_buffer[session_id] = (
+                self._text_buffer.get(session_id, "") + delta
+            )
             await self._emit(
                 {
                     "type": "text_delta",
@@ -104,6 +116,8 @@ class EventMerger:
 
         if event_type in {"run_completed", "run_failed"}:
             if event_type == "run_failed":
+                self._failed_sessions.add(session_id)
+                self._completed_sessions.discard(session_id)
                 await self.flush(session_id)
                 await self._emit(
                     {
@@ -116,6 +130,10 @@ class EventMerger:
                 )
                 return
 
+            if session_id in self._completed_sessions:
+                return
+            self._failed_sessions.discard(session_id)
+            self._completed_sessions.discard(session_id)
             await self._schedule_pending_completion(
                 session_id,
                 {
@@ -178,6 +196,7 @@ class EventMerger:
 
         if hook in {"stop", "run_completed", "done"}:
             await self.flush(session_id)
+            self._completed_sessions.add(session_id)
             await self._emit(
                 {
                     "type": "run_completed",
@@ -231,6 +250,10 @@ class EventMerger:
                 await completion
 
         self._text_buffer.pop(session_id, None)
+        effective_message_id = self._provisional_message_ids.pop(
+            session_id,
+            message_id or f"authoritative:{session_id}:{uuid.uuid4().hex[:8]}",
+        )
         await self._emit(
             {
                 "type": "message_finalized",
@@ -240,19 +263,24 @@ class EventMerger:
                 "content": str(event.get("content") or ""),
                 "role": event.get("role"),
                 "timestamp": event.get("timestamp"),
-                "message_id": message_id or None,
+                "message_id": effective_message_id,
                 "authoritative": True,
             }
         )
-        await self._emit(
-            {
-                "type": "run_completed",
-                "session_id": session_id,
-                "provider": provider or "claude",
-                "source": "file_watcher",
-                "authoritative": True,
-            }
-        )
+        if (
+            session_id not in self._failed_sessions
+            and session_id not in self._completed_sessions
+        ):
+            self._completed_sessions.add(session_id)
+            await self._emit(
+                {
+                    "type": "run_completed",
+                    "session_id": session_id,
+                    "provider": provider or "claude",
+                    "source": "file_watcher",
+                    "authoritative": True,
+                }
+            )
 
     async def _schedule_pending_completion(
         self,
@@ -274,6 +302,7 @@ class EventMerger:
                 await asyncio.sleep(self.authoritative_delay_sec)
                 await self.flush(session_id)
                 await self._emit(completion_event)
+                self._completed_sessions.add(session_id)
             finally:
                 self._pending_completion.pop(session_id, None)
 

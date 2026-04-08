@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Composer } from "./components/composer/Composer";
 import { BridgeStatusBanner } from "./components/shared/BridgeStatusBanner";
+import { RecoveryScreen, type RecoveryState } from "./components/shared/RecoveryScreen";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { TerminalDrawer } from "./components/terminal/TerminalDrawer";
@@ -26,7 +27,7 @@ const CommandPalette = lazy(async () => {
 });
 
 export function App() {
-  const loadProjects = useProjectStore((state) => state.loadProjects);
+  const openProject = useProjectStore((state) => state.openProject);
   const activeProject = useProjectStore((state) => state.activeProject);
   const setProjects = useProjectStore((state) => state.setProjects);
   const setActiveProject = useProjectStore((state) => state.setActiveProject);
@@ -48,7 +49,10 @@ export function App() {
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const clearDiffFiles = useUiStore((state) => state.clearDiffFiles);
   const setBridgeStatus = useBridgeStore((state) => state.setStatus);
+  const bridgeStatus = useBridgeStore((state) => state.status);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [bootstrapState, setBootstrapState] = useState<RecoveryState | "ready">("booting");
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   useStreamEvents();
 
@@ -106,6 +110,109 @@ export function App() {
     void rpc("session.stop", { session_id: activeSession.id });
   }, [activeSession]);
 
+  const bootstrapApp = useCallback(async (forceRestart = false) => {
+    setBootstrapState("booting");
+    setBootstrapError(null);
+    try {
+      if (forceRestart) {
+        await stopBridge();
+      }
+      await startBridge();
+      const state = await rpc<{
+        projects: Array<{
+          path: string;
+          name: string;
+          git_root: string;
+          last_opened_at?: string;
+        }>;
+        sessions: Array<{
+          id: string;
+          project_path: string;
+          title: string;
+          mode: "solo" | "critic" | "brainstorm" | "delegate";
+          status: "active" | "running" | "paused" | "completed" | "failed";
+          created_at: string;
+          updated_at: string;
+          message_count: number;
+          provider?: "claude" | "codex" | "gemini";
+        }>;
+        last_project: string | null;
+        last_session_id: string | null;
+      }>("app.get_state");
+
+      setProjects(state.projects);
+      setSessions(state.sessions);
+
+      if (!state.projects.length) {
+        setActiveProject(null);
+        setBootstrapState("project_unavailable");
+        return;
+      }
+
+      const targetProject =
+        state.projects.find((project) => project.path === state.last_project) ?? state.projects[0] ?? null;
+      setActiveProject(targetProject);
+
+      const targetSession =
+        state.sessions.find((session) => session.id === state.last_session_id) ??
+        state.sessions.find((session) => session.project_path === targetProject?.path) ??
+        state.sessions[0];
+
+      if (targetSession) {
+        await hydrateSession(targetSession.id);
+      }
+      setBootstrapState("ready");
+    } catch (error) {
+      setBootstrapState("bridge_unavailable");
+      setBootstrapError(error instanceof Error ? error.message : "Bridge startup failed");
+    }
+  }, [hydrateSession, setActiveProject, setProjects, setSessions]);
+
+  const chooseProjectFromPrompt = useCallback(async () => {
+    if (typeof globalThis.prompt !== "function") {
+      notifyAction("Project picker is unavailable in this environment.");
+      return;
+    }
+    const path = globalThis.prompt("Enter the absolute project path");
+    if (!path?.trim()) {
+      return;
+    }
+    try {
+      const project = await openProject(path.trim());
+      setActiveProject(project);
+      await loadSessions(project.path);
+      setBootstrapState("ready");
+      setBootstrapError(null);
+    } catch (error) {
+      setBootstrapError(error instanceof Error ? error.message : "Failed to open project");
+    }
+  }, [loadSessions, notifyAction, openProject, setActiveProject]);
+
+  const exportRecoveryDiagnostics = useCallback(async () => {
+    const payload: Record<string, unknown> = {
+      exported_at: new Date().toISOString(),
+      recovery_state: bootstrapState,
+      bridge_status: bridgeStatus,
+      bootstrap_error: bootstrapError,
+    };
+
+    try {
+      payload.backend = await rpc("diagnostics");
+    } catch (error) {
+      payload.diagnostics_error = error instanceof Error ? error.message : "Diagnostics unavailable";
+    }
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `triad-diagnostics-${Date.now()}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [bootstrapError, bootstrapState, bridgeStatus]);
+
   useKeyboardShortcuts({
     openCommandPalette: () => setPaletteOpen(true),
     stopCurrentRun,
@@ -127,55 +234,9 @@ export function App() {
     let disposed = false;
 
     void (async () => {
-      await startBridge();
-      try {
-        const state = await rpc<{
-          projects: Array<{
-            path: string;
-            name: string;
-            git_root: string;
-            last_opened_at?: string;
-          }>;
-          sessions: Array<{
-            id: string;
-            project_path: string;
-            title: string;
-            mode: "solo" | "critic" | "brainstorm" | "delegate";
-            status: "active" | "running" | "paused" | "completed" | "failed";
-            created_at: string;
-            updated_at: string;
-            message_count: number;
-            provider?: "claude" | "codex" | "gemini";
-          }>;
-          last_project: string | null;
-          last_session_id: string | null;
-        }>("app.get_state");
-
-        if (disposed) {
-          return;
-        }
-
-        setProjects(state.projects);
-        setSessions(state.sessions);
-
-        const targetProject =
-          state.projects.find((project) => project.path === state.last_project) ?? state.projects[0] ?? null;
-        setActiveProject(targetProject);
-
-        const targetSession =
-          state.sessions.find((session) => session.id === state.last_session_id) ??
-          state.sessions.find((session) => session.project_path === targetProject?.path) ??
-          state.sessions[0];
-
-        if (targetSession) {
-          await hydrateSession(targetSession.id);
-        }
-      } catch {
-        if (disposed) {
-          return;
-        }
-        await loadProjects();
-        await loadSessions("");
+      await bootstrapApp();
+      if (disposed) {
+        return;
       }
     })();
 
@@ -183,7 +244,25 @@ export function App() {
       disposed = true;
       void stopBridge();
     };
-  }, [hydrateSession, loadProjects, loadSessions, setActiveProject, setProjects, setSessions]);
+  }, [bootstrapApp]);
+
+  useEffect(() => {
+    if (
+      bootstrapState === "ready" &&
+      bridgeStatus.started &&
+      !bridgeStatus.connected &&
+      (bridgeStatus.lastError || bridgeStatus.fallbackReason)
+    ) {
+      setBootstrapState("bridge_unavailable");
+      setBootstrapError(bridgeStatus.lastError ?? bridgeStatus.fallbackReason ?? "Bridge unavailable");
+    }
+  }, [
+    bootstrapState,
+    bridgeStatus.connected,
+    bridgeStatus.fallbackReason,
+    bridgeStatus.lastError,
+    bridgeStatus.started,
+  ]);
 
   useEffect(() => {
     if (!activeSession) {
@@ -307,6 +386,18 @@ export function App() {
       toggleSidebar,
     ]
   );
+
+  if (bootstrapState !== "ready") {
+    return (
+      <RecoveryScreen
+        state={bootstrapState}
+        error={bootstrapError}
+        onRetry={() => bootstrapApp(true)}
+        onChooseProject={bootstrapState === "project_unavailable" ? chooseProjectFromPrompt : undefined}
+        onExportDiagnostics={exportRecoveryDiagnostics}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-surface text-text-primary">

@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://triad.dev/schemas/stream-event.schema.json",
+  "title": "Triad Stream Event",
+  "type": "object",
+  "required": ["schema_version", "session_id", "type"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "text_delta",
+        "message_finalized",
+        "tool_use",
+        "tool_result",
+        "review_finding",
+        "diff_snapshot",
+        "stderr",
+        "run_completed",
+        "run_failed",
+        "terminal_output",
+        "system"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "enum": ["claude", "codex", "gemini"]
+    },
+    "role": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "authoritative": {
+      "type": "boolean"
+    },
+    "message_id": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string"
+    },
+    "input": {},
+    "output": {},
+    "status": {
+      "type": "string",
+      "enum": ["running", "completed", "failed"]
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "delta": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["P0", "P1", "P2", "P3"]
+    },
+    "file": {
+      "type": "string"
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "line_range": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "explanation": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "old_text": {
+      "type": "string"
+    },
+    "new_text": {
+      "type": "string"
+    },
+    "terminal_id": {
+      "type": "string"
+    },
+    "data": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "text_delta"
+          }
+        }
+      },
+      "then": {
+        "required": ["delta"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "message_finalized"
+          }
+        }
+      },
+      "then": {
+        "required": ["content"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "tool_use"
+          }
+        }
+      },
+      "then": {
+        "required": ["tool", "status"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "tool_result"
+          }
+        }
+      },
+      "then": {
+        "required": ["tool", "status"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "review_finding"
+          }
+        }
+      },
+      "then": {
+        "required": ["severity", "file", "title", "explanation"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "diff_snapshot"
+          }
+        }
+      },
+      "then": {
+        "required": ["path", "old_text", "new_text"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "stderr"
+          }
+        }
+      },
+      "then": {
+        "required": ["data"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "run_failed"
+          }
+        }
+      },
+      "then": {
+        "required": ["error"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "terminal_output"
+          }
+        }
+      },
+      "then": {
+        "required": ["terminal_id", "data"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "system"
+          }
+        }
+      },
+      "then": {
+        "required": ["content"]
+      }
+    }
+  ]
+}

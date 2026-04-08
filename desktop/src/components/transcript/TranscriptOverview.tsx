@@ -51,13 +51,13 @@ export function buildTranscriptOverview(
 ): TranscriptOverviewData | null {
   const userMessages = messages.filter((message) => message.role === "user");
   const assistantMessages = messages.filter((message) => message.role === "assistant");
-  const toolEvents = messages.filter((message) => message.content.startsWith("!tool:")).length;
-  const findings = messages.filter((message) => message.content.startsWith("!finding:")).length;
+  const toolEvents = messages.filter((message) => Boolean(message.tool_event)).length;
+  const findings = messages.filter((message) => Boolean(message.review_finding)).length;
   const systemMessages = messages.filter(
     (message) =>
       message.role === "system" &&
-      !message.content.startsWith("!tool:") &&
-      !message.content.startsWith("!finding:")
+      !message.tool_event &&
+      !message.review_finding
   ).length;
 
   if (messages.length < 4 && userMessages.length < 2 && streamingRuns.length === 0) {

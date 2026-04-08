@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "session_id": "sess_review",
+  "run_id": "run_review",
+  "type": "review_finding",
+  "provider": "codex",
+  "role": "critic",
+  "severity": "P1",
+  "file": "desktop/src/hooks/useStreamEvents.ts",
+  "title": "System events drop during streaming",
+  "explanation": "Persist system messages into the transcript store.",
+  "line": 42,
+  "line_range": "42"
+}

@@ -1,0 +1,4 @@
+{"schema_version":1,"session_id":"sess_claude_send","run_id":"run_claude_send","type":"system","provider":"claude","content":"Claude writer is running"}
+{"schema_version":1,"session_id":"sess_claude_send","run_id":"run_claude_send","type":"text_delta","provider":"claude","role":"assistant","delta":"Hello"}
+{"schema_version":1,"session_id":"sess_claude_send","run_id":"run_claude_send","type":"message_finalized","provider":"claude","role":"assistant","content":"Hello world"}
+{"schema_version":1,"session_id":"sess_claude_send","run_id":"run_claude_send","type":"run_completed","provider":"claude"}

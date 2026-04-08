@@ -19,7 +19,7 @@ type TerminalAddon = {
   activate?: (terminal: any) => void;
 };
 
-const DEFAULT_CWD = "/Users/martin/triad";
+const DEFAULT_CWD = "/";
 
 function safeAtob(value: string) {
   try {

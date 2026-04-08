@@ -1,0 +1,4 @@
+{"schema_version":1,"session_id":"sess_codex_send","run_id":"run_codex_send","type":"system","provider":"codex","content":"Codex delegate is running"}
+{"schema_version":1,"session_id":"sess_codex_send","run_id":"run_codex_send","type":"tool_use","provider":"codex","role":"delegate","tool":"Read","status":"running","input":{"path":"triad/core/providers/codex.py"}}
+{"schema_version":1,"session_id":"sess_codex_send","run_id":"run_codex_send","type":"message_finalized","provider":"codex","role":"delegate","content":"Codex summary"}
+{"schema_version":1,"session_id":"sess_codex_send","run_id":"run_codex_send","type":"run_completed","provider":"codex"}

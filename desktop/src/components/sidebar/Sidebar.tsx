@@ -27,9 +27,22 @@ export function Sidebar() {
   };
 
   const handleOpenProject = async () => {
-    const project = await openProject("/Users/martin/triad");
-    setActiveProject(project);
-    await loadSessions("");
+    if (typeof globalThis.prompt !== "function") {
+      return;
+    }
+    const path = globalThis.prompt("Enter the absolute project path");
+    if (!path?.trim()) {
+      return;
+    }
+    try {
+      const project = await openProject(path.trim());
+      setActiveProject(project);
+      await loadSessions(project.path);
+    } catch (error) {
+      if (typeof globalThis.alert === "function") {
+        globalThis.alert(error instanceof Error ? error.message : "Failed to open project");
+      }
+    }
   };
 
   return (

@@ -10,7 +10,9 @@ from triad.desktop.file_watcher import ClaudeSessionWatcher
 
 
 @pytest.mark.asyncio
-async def test_claude_session_watcher_emits_authoritative_assistant_messages(tmp_path: Path):
+async def test_claude_session_watcher_emits_authoritative_assistant_messages(
+    tmp_path: Path,
+):
     events: list[dict] = []
 
     async def on_event(event: dict) -> None:
@@ -19,7 +21,10 @@ async def test_claude_session_watcher_emits_authoritative_assistant_messages(tmp
     claude_projects_dir = tmp_path / ".claude" / "projects"
     project_dir = tmp_path / "workspace"
     project_dir.mkdir(parents=True)
-    storage_dir = claude_projects_dir / ClaudeSessionWatcher.project_path_to_storage_dir(str(project_dir))
+    storage_dir = (
+        claude_projects_dir
+        / ClaudeSessionWatcher.project_path_to_storage_dir(str(project_dir))
+    )
     storage_dir.mkdir(parents=True)
     session_file = storage_dir / "session.jsonl"
 
@@ -67,7 +72,10 @@ async def test_claude_session_watcher_prefers_prompt_matching_file(tmp_path: Pat
     claude_projects_dir = tmp_path / ".claude" / "projects"
     project_dir = tmp_path / "workspace"
     project_dir.mkdir(parents=True)
-    storage_dir = claude_projects_dir / ClaudeSessionWatcher.project_path_to_storage_dir(str(project_dir))
+    storage_dir = (
+        claude_projects_dir
+        / ClaudeSessionWatcher.project_path_to_storage_dir(str(project_dir))
+    )
     storage_dir.mkdir(parents=True)
 
     older_file = storage_dir / "older.jsonl"
@@ -104,8 +112,12 @@ async def test_claude_session_watcher_prefers_prompt_matching_file(tmp_path: Pat
     )
     newer_file.touch()
 
-    watcher = ClaudeSessionWatcher(on_event=on_event, claude_projects_dir=claude_projects_dir)
-    watcher.watch_session("sess_live", str(project_dir), prompt_hint="Implement the critical fix")
+    watcher = ClaudeSessionWatcher(
+        on_event=on_event, claude_projects_dir=claude_projects_dir
+    )
+    watcher.watch_session(
+        "sess_live", str(project_dir), prompt_hint="Implement the critical fix"
+    )
     await watcher.scan_once()
 
     assert len(events) == 1
@@ -159,6 +171,132 @@ async def test_event_merger_prefers_authoritative_message_over_pty_buffer():
     assert all(event.get("content") != "raw draft" for event in finalized)
 
 
+@pytest.mark.asyncio
+async def test_event_merger_reuses_provisional_message_id_for_late_authoritative_update():
+    events: list[dict] = []
+
+    async def on_event(event: dict) -> None:
+        events.append(event)
+
+    merger = EventMerger(on_ui_event=on_event, authoritative_delay_sec=0.01)
+    await merger.handle(
+        {
+            "source": "pty",
+            "type": "text_delta",
+            "session_id": "sess_late",
+            "provider": "claude",
+            "delta": "draft reply",
+        }
+    )
+    await merger.handle(
+        {
+            "source": "pty",
+            "type": "run_completed",
+            "session_id": "sess_late",
+            "provider": "claude",
+        }
+    )
+    await asyncio.sleep(0.03)
+
+    provisional = [event for event in events if event["type"] == "message_finalized"]
+    assert len(provisional) == 1
+    provisional_id = provisional[0]["message_id"]
+
+    await merger.handle(
+        {
+            "source": "file_watcher",
+            "type": "authoritative_message",
+            "session_id": "sess_late",
+            "provider": "claude",
+            "role": "assistant",
+            "content": "final authoritative reply",
+            "message_id": "watcher-message-1",
+        }
+    )
+
+    finalized = [event for event in events if event["type"] == "message_finalized"]
+    assert len(finalized) == 2
+    assert finalized[-1]["message_id"] == provisional_id
+    assert finalized[-1]["authoritative"] is True
+    assert finalized[-1]["content"] == "final authoritative reply"
+
+
+@pytest.mark.asyncio
+async def test_event_merger_does_not_mark_failed_run_completed_when_authoritative_message_arrives_late():
+    events: list[dict] = []
+
+    async def on_event(event: dict) -> None:
+        events.append(event)
+
+    merger = EventMerger(on_ui_event=on_event, authoritative_delay_sec=0.01)
+    await merger.handle(
+        {
+            "source": "pty",
+            "type": "text_delta",
+            "session_id": "sess_failed",
+            "provider": "claude",
+            "delta": "draft reply",
+        }
+    )
+    await merger.handle(
+        {
+            "source": "pty",
+            "type": "run_failed",
+            "session_id": "sess_failed",
+            "provider": "claude",
+            "error": "pty crashed",
+        }
+    )
+    await merger.handle(
+        {
+            "source": "file_watcher",
+            "type": "authoritative_message",
+            "session_id": "sess_failed",
+            "provider": "claude",
+            "role": "assistant",
+            "content": "final authoritative reply",
+            "message_id": "watcher-message-2",
+        }
+    )
+
+    run_completed = [event for event in events if event["type"] == "run_completed"]
+    run_failed = [event for event in events if event["type"] == "run_failed"]
+    assert len(run_failed) == 1
+    assert run_completed == []
+
+
+@pytest.mark.asyncio
+async def test_event_merger_does_not_emit_duplicate_completion_after_hook_stop_and_authoritative_message():
+    events: list[dict] = []
+
+    async def on_event(event: dict) -> None:
+        events.append(event)
+
+    merger = EventMerger(on_ui_event=on_event, authoritative_delay_sec=0.01)
+    await merger.handle(
+        {
+            "source": "hooks",
+            "hook": "stop",
+            "session_id": "sess_hook",
+            "provider": "claude",
+        }
+    )
+    await merger.handle(
+        {
+            "source": "file_watcher",
+            "type": "authoritative_message",
+            "session_id": "sess_hook",
+            "provider": "claude",
+            "role": "assistant",
+            "content": "authoritative reply",
+            "message_id": "watcher-hook-1",
+        }
+    )
+
+    run_completed = [event for event in events if event["type"] == "run_completed"]
+    assert len(run_completed) == 1
+
+
 class _FakeClaudePTY:
     def __init__(self, workdir: Path, on_event, env=None) -> None:
         self.workdir = workdir
@@ -182,7 +320,9 @@ class _FakeWatcher:
         self.watched: list[tuple[str, str]] = []
         self.unwatched: list[str] = []
 
-    def watch_session(self, session_id: str, project_path: str, *, prompt_hint: str | None = None) -> None:
+    def watch_session(
+        self, session_id: str, project_path: str, *, prompt_hint: str | None = None
+    ) -> None:
         self.watched.append((session_id, project_path))
 
     def unwatch_session(self, session_id: str) -> None:
@@ -196,7 +336,9 @@ class _FakeWatcher:
 
 
 @pytest.mark.asyncio
-async def test_runtime_tracks_claude_session_in_file_watcher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_runtime_tracks_claude_session_in_file_watcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     runtime = DesktopRuntime()
     await runtime.initialize()
     monkeypatch.setattr("triad.desktop.bridge.ClaudePTY", _FakeClaudePTY)
@@ -204,9 +346,13 @@ async def test_runtime_tracks_claude_session_in_file_watcher(tmp_path: Path, mon
     runtime._file_watcher = fake_watcher
     try:
         await runtime.open_project(str(tmp_path))
-        session = await runtime.create_session(str(tmp_path), "solo", "claude", "Watch me")
+        session = await runtime.create_session(
+            str(tmp_path), "solo", "claude", "Watch me"
+        )
 
-        result = await runtime.send_session_message(session["id"], "Hello watcher", provider="claude")
+        result = await runtime.send_session_message(
+            session["id"], "Hello watcher", provider="claude"
+        )
 
         assert result["provider"] == "claude"
         assert fake_watcher.watched == [(session["id"], str(tmp_path.resolve()))]

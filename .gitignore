@@ -7,6 +7,8 @@ __pycache__/
 *.db-shm
 dist/
 node_modules/
+desktop/test-results/
+desktop/playwright-report/
 target/
 *.egg-info/
 .DS_Store

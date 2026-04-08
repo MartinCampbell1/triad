@@ -16,7 +16,9 @@ async def test_desktop_runtime_export_archive_and_import_roundtrip(tmp_path: Pat
     await runtime.initialize()
     try:
         await runtime.open_project(str(project_dir))
-        session = await runtime.create_session(str(project_dir), "critic", "claude", "Export me")
+        session = await runtime.create_session(
+            str(project_dir), "critic", "claude", "Export me"
+        )
         session_id = session["id"]
         ledger = await runtime.ledger()
         await ledger.append_event(
@@ -58,11 +60,161 @@ async def test_desktop_runtime_export_archive_and_import_roundtrip(tmp_path: Pat
         assert imported["session"]["project_path"] == str(project_dir.resolve())
         assert imported["session"]["status"] == "paused"
         assert imported["session"]["created_at"] == archive["session"]["created_at"]
-        assert any(message["content"] == "Roundtrip context" for message in imported["messages"])
-        assert any(message["content"] == "Roundtrip answer" for message in imported["messages"])
+        assert any(
+            message["content"] == "Roundtrip context"
+            for message in imported["messages"]
+        )
+        assert any(
+            message["content"] == "Roundtrip answer" for message in imported["messages"]
+        )
 
         projects = await runtime.list_projects()
-        assert any(project["path"] == str(project_dir.resolve()) for project in projects)
+        assert any(
+            project["path"] == str(project_dir.resolve()) for project in projects
+        )
+    finally:
+        await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_import_dedupes_authoritative_message_replacements_by_message_id(
+    tmp_path: Path,
+):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    archive_path = tmp_path / "authoritative-archive.json"
+
+    archive_path.write_text(
+        json.dumps(
+            {
+                "type": "triad_desktop_session_archive",
+                "version": 1,
+                "exported_at": "2026-04-08T00:00:00Z",
+                "session": {
+                    "id": "source-session",
+                    "source_session_id": "source-session",
+                    "title": "Authoritative import",
+                    "task": "Authoritative import",
+                    "mode": "solo",
+                    "status": "completed",
+                    "provider": "claude",
+                    "project_path": str(project_dir),
+                    "created_at": "2026-04-08T00:00:00Z",
+                    "updated_at": "2026-04-08T00:00:00Z",
+                },
+                "project": {
+                    "path": str(project_dir),
+                    "name": project_dir.name,
+                    "git_root": str(project_dir),
+                },
+                "events": [
+                    {
+                        "session_id": "source-session",
+                        "seq": 1,
+                        "type": "message_finalized",
+                        "provider": "claude",
+                        "role": "assistant",
+                        "timestamp": "2026-04-08T00:00:00Z",
+                        "data": {
+                            "content": "draft reply",
+                            "message_id": "msg-1",
+                        },
+                    },
+                    {
+                        "session_id": "source-session",
+                        "seq": 2,
+                        "type": "message_finalized",
+                        "provider": "claude",
+                        "role": "assistant",
+                        "timestamp": "2026-04-08T00:00:01Z",
+                        "data": {
+                            "content": "final reply",
+                            "message_id": "msg-1",
+                            "authoritative": True,
+                        },
+                    },
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    runtime = DesktopRuntime()
+    await runtime.initialize()
+    try:
+        imported = await runtime.import_session(str(archive_path))
+        assistant_messages = [
+            message
+            for message in imported["messages"]
+            if message["role"] == "assistant"
+        ]
+        assert len(assistant_messages) == 1
+        assert assistant_messages[0]["content"] == "final reply"
+        assert imported["session"]["message_count"] == 1
+    finally:
+        await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_import_normalizes_aliased_stream_event_types(tmp_path: Path):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    archive_path = tmp_path / "aliased-archive.json"
+
+    archive_path.write_text(
+        json.dumps(
+            {
+                "type": "triad_desktop_session_archive",
+                "version": 1,
+                "exported_at": "2026-04-08T00:00:00Z",
+                "session": {
+                    "id": "source-session",
+                    "source_session_id": "source-session",
+                    "title": "Aliased import",
+                    "task": "Aliased import",
+                    "mode": "solo",
+                    "status": "completed",
+                    "provider": "claude",
+                    "project_path": str(project_dir),
+                    "created_at": "2026-04-08T00:00:00Z",
+                    "updated_at": "2026-04-08T00:00:00Z",
+                },
+                "project": {
+                    "path": str(project_dir),
+                    "name": project_dir.name,
+                    "git_root": str(project_dir),
+                },
+                "events": [
+                    {
+                        "session_id": "source-session",
+                        "seq": 1,
+                        "type": "message_completed",
+                        "provider": "claude",
+                        "role": "assistant",
+                        "timestamp": "2026-04-08T00:00:00Z",
+                        "data": {
+                            "content": "aliased reply",
+                        },
+                    },
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    runtime = DesktopRuntime()
+    await runtime.initialize()
+    try:
+        imported = await runtime.import_session(str(archive_path))
+        assistant_messages = [
+            message
+            for message in imported["messages"]
+            if message["role"] == "assistant"
+        ]
+        assert len(assistant_messages) == 1
+        assert assistant_messages[0]["content"] == "aliased reply"
     finally:
         await runtime.shutdown()
 
@@ -77,7 +229,9 @@ async def test_desktop_runtime_export_markdown_contains_transcript(tmp_path: Pat
     await runtime.initialize()
     try:
         await runtime.open_project(str(project_dir))
-        session = await runtime.create_session(str(project_dir), "solo", "claude", "Markdown export")
+        session = await runtime.create_session(
+            str(project_dir), "solo", "claude", "Markdown export"
+        )
         session_id = session["id"]
         ledger = await runtime.ledger()
         await ledger.append_event(
@@ -125,7 +279,9 @@ async def test_bridge_session_export_and_import_handlers_are_available(tmp_path:
     bridge.runtime = runtime
     try:
         await runtime.open_project(str(project_dir))
-        session = await runtime.create_session(str(project_dir), "delegate", "claude", "Bridge export")
+        session = await runtime.create_session(
+            str(project_dir), "delegate", "claude", "Bridge export"
+        )
 
         exported = await bridge._handlers["session.export"](
             {

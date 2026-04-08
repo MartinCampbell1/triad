@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "session_id": "sess_diff",
+  "run_id": "run_diff",
+  "type": "diff_snapshot",
+  "provider": "claude",
+  "role": "writer",
+  "path": "desktop/src/lib/rpc.ts",
+  "old_text": "old",
+  "new_text": "new"
+}

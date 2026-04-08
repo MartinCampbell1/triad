@@ -24,7 +24,7 @@ export function BridgeStatusBanner() {
     : status.connected
       ? status.backendMode === "tauri"
         ? "Python bridge is connected"
-        : "Running on mock backend"
+        : "Python bridge is degraded"
       : "Python bridge is unavailable";
 
   const detail = status.lastError
@@ -47,7 +47,7 @@ export function BridgeStatusBanner() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-[12px] font-medium text-text-primary">{headline}</div>
             <Badge tone={statusTone(status.connected, status.reconnecting)}>
-              {status.backendMode === "tauri" ? "live" : "mock"}
+              {status.backendMode === "tauri" ? "live" : "offline"}
             </Badge>
             {status.reconnecting ? <Badge tone="subtle">reconnecting</Badge> : null}
           </div>

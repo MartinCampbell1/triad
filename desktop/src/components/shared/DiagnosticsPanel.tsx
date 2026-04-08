@@ -30,6 +30,7 @@ interface DiagnosticsPayload {
   active_claude_sessions: string[];
   active_sessions: ActiveSessionEntry[];
   active_terminals: string[];
+  active_file_watches: Array<{ session_id: string; project_path: string; project_dir: string; bound_file: string }>;
   hooks_socket: string;
 }
 
@@ -165,9 +166,7 @@ export function DiagnosticsPanel({ open }: Props) {
                   ? "Bridge retrying"
                   : bridgeStatus.connected
                     ? "Bridge live"
-                    : bridgeStatus.backendMode === "mock"
-                      ? "Bridge mock"
-                      : "Bridge offline"
+                    : "Bridge offline"
                 : "Bridge starting"}
             </Badge>
           </div>
@@ -243,6 +242,25 @@ export function DiagnosticsPanel({ open }: Props) {
                 {compactPath(data.hooks_socket)}
               </span>
             </div>
+          </div>
+
+          <div className="mt-3 space-y-2 rounded-[14px] border border-border-light bg-black/20 px-3 py-2">
+            <div className="text-[11px] uppercase tracking-[0.12em] text-text-tertiary">Watcher bindings</div>
+            {data.active_file_watches.length === 0 ? (
+              <div className="text-[12px] text-text-tertiary">No active Claude file watches.</div>
+            ) : (
+              data.active_file_watches.slice(0, 4).map((watch) => (
+                <div key={`${watch.session_id}:${watch.project_dir}`} className="rounded-[12px] border border-border-light bg-black/10 px-3 py-2">
+                  <div className="text-[12px] font-medium text-text-primary">{watch.session_id}</div>
+                  <div className="mt-1 truncate font-mono text-[11px] text-text-tertiary" title={watch.project_path}>
+                    {compactPath(watch.project_path)}
+                  </div>
+                  <div className="mt-1 truncate font-mono text-[11px] text-text-tertiary" title={watch.bound_file || watch.project_dir}>
+                    {compactPath(watch.bound_file || watch.project_dir)}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </>
       ) : null}
