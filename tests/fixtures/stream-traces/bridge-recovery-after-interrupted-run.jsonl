@@ -1,0 +1,4 @@
+{"schema_version":1,"session_id":"sess_bridge_recovery","run_id":"run_bridge_recovery","type":"run_failed","provider":"claude","error":"Bridge disconnected"}
+{"schema_version":1,"session_id":"sess_bridge_recovery","run_id":"run_bridge_recovery_retry","type":"system","provider":"claude","content":"Bridge reconnected"}
+{"schema_version":1,"session_id":"sess_bridge_recovery","run_id":"run_bridge_recovery_retry","type":"message_finalized","provider":"claude","content":"Retry completed"}
+{"schema_version":1,"session_id":"sess_bridge_recovery","run_id":"run_bridge_recovery_retry","type":"run_completed","provider":"claude"}

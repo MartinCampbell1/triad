@@ -12,17 +12,43 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            webkit2gtk-driver \
+            xvfb
       - uses: pnpm/action-setup@v4
         with:
           version: 10
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
           cache-dependency-path: desktop/pnpm-lock.yaml
+      - name: Install Python dependencies
+        working-directory: .
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+      - name: Run Tauri desktop smoke
+        run: xvfb-run -a pnpm test:tauri-e2e
       - name: Run desktop E2E
         run: pnpm test:e2e

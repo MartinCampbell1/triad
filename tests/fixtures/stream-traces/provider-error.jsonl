@@ -1,0 +1,2 @@
+{"schema_version":1,"session_id":"sess_provider_error","run_id":"run_provider_error","type":"system","provider":"codex","content":"Provider request failed"}
+{"schema_version":1,"session_id":"sess_provider_error","run_id":"run_provider_error","type":"run_failed","provider":"codex","error":"rate limited"}

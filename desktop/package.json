@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:e2e": "playwright test",
+    "test:tauri-e2e": "node e2e/tauri-smoke.mjs",
     "test:visual": "playwright test --grep @visual",
     "tauri": "tauri"
   },
@@ -35,6 +36,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.4.1",
+    "selenium-webdriver": "^4.41.0",
     "tailwindcss": "^4.1.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"

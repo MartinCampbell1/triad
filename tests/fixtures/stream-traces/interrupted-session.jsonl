@@ -1,0 +1,2 @@
+{"schema_version":1,"session_id":"sess_interrupted","run_id":"run_interrupted","type":"text_delta","provider":"claude","delta":"partial response"}
+{"schema_version":1,"session_id":"sess_interrupted","run_id":"run_interrupted","type":"run_failed","provider":"claude","error":"Run cancelled"}

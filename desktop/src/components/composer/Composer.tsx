@@ -8,6 +8,7 @@ import { ModelSelector } from "./ModelSelector";
 
 export function Composer() {
   const [value, setValue] = useState("");
+  const [showAdvancedControls, setShowAdvancedControls] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { activeProject } = useProjectStore();
   const { activeSession, createSession, clearStreamingText } = useSessionStore();
@@ -116,11 +117,34 @@ export function Composer() {
               >
                 +
               </button>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedControls((current) => !current)}
+                aria-expanded={showAdvancedControls}
+                className="inline-flex items-center gap-1 rounded-full border border-border-default bg-black/20 px-3 py-1 text-[12px] text-text-secondary transition-colors hover:border-border-heavy hover:text-text-primary"
+              >
+                <span>{showAdvancedControls ? "Hide controls" : `${mode} · ${activeProvider}`}</span>
+                <span className="text-[10px] text-text-tertiary">▾</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              aria-label="Send message"
+              onClick={() => void handleSend()}
+              disabled={!value.trim()}
+              className="grid h-9 w-9 place-items-center rounded-full bg-accent text-[15px] text-white shadow-[0_0_0_1px_rgba(51,156,255,0.25)] transition-opacity disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              ↗
+            </button>
+          </div>
+
+          {showAdvancedControls ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border-light pt-3">
+              <ModeSelector />
               <ModelSelector />
               <label className="relative inline-flex items-center gap-1 rounded-full border border-border-default bg-black/20 px-3 py-1 text-[12px] text-text-secondary transition-colors hover:border-border-heavy">
-                <span>
-                  {accessMode === "local" ? "Местный" : "Удаленный"}
-                </span>
+                <span>{accessMode === "local" ? "Местный" : "Удаленный"}</span>
                 <select
                   value={accessMode}
                   onChange={(event) => {
@@ -140,8 +164,8 @@ export function Composer() {
                 <select
                   value="very-high"
                   onChange={(event) => {
-                    const value = event.target.value as "very-high" | "high" | "medium";
-                    useProviderStore.getState().setReasoningEffort(value);
+                    const nextValue = event.target.value as "very-high" | "high" | "medium";
+                    useProviderStore.getState().setReasoningEffort(nextValue);
                   }}
                   className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                   aria-label="Reasoning effort selector"
@@ -153,17 +177,7 @@ export function Composer() {
                 <span className="text-[10px] text-text-tertiary">▾</span>
               </label>
             </div>
-
-            <button
-              type="button"
-              aria-label="Send message"
-              onClick={() => void handleSend()}
-              disabled={!value.trim()}
-              className="grid h-9 w-9 place-items-center rounded-full bg-accent text-[15px] text-white shadow-[0_0_0_1px_rgba(51,156,255,0.25)] transition-opacity disabled:cursor-not-allowed disabled:opacity-35"
-            >
-              ↗
-            </button>
-          </div>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between px-1 text-[12px] text-text-tertiary">

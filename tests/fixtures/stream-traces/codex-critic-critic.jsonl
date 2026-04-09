@@ -1,0 +1,3 @@
+{"schema_version":1,"session_id":"sess_codex_critic","run_id":"sess_codex_critic:critic","type":"system","provider":"codex","content":"Codex critic pass started"}
+{"schema_version":1,"session_id":"sess_codex_critic","run_id":"sess_codex_critic:critic","type":"review_finding","provider":"codex","role":"critic","severity":"P2","file":"desktop/src/hooks/useStreamEvents.ts","title":"Golden trace replay","explanation":"Timeline replay remained typed."}
+{"schema_version":1,"session_id":"sess_codex_critic","run_id":"sess_codex_critic:critic","type":"run_completed","provider":"codex"}

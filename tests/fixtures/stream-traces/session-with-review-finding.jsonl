@@ -1,0 +1,2 @@
+{"schema_version":1,"session_id":"sess_finding_trace","run_id":"run_finding_trace","type":"review_finding","provider":"codex","severity":"P1","file":"desktop/src/App.tsx","title":"Recovery screen shown","explanation":"Bridge boot now fails closed."}
+{"schema_version":1,"session_id":"sess_finding_trace","run_id":"run_finding_trace","type":"run_completed","provider":"codex"}

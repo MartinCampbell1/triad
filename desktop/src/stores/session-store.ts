@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { rpc } from "../lib/rpc";
-import type { Message, ProviderId, Session, StreamingRun } from "../lib/types";
+import type { DiffFile, Message, ProviderId, Session, StreamingRun } from "../lib/types";
 import { useProjectStore } from "./project-store";
+import { useUiStore } from "./ui-store";
 
 interface SessionState {
   sessions: Session[];
@@ -49,6 +50,22 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function extractDiffFiles(messages: Message[]): DiffFile[] {
+  const filesByPath = new Map<string, DiffFile>();
+  for (const message of messages) {
+    const diff = message.diff_snapshot;
+    if (!diff) {
+      continue;
+    }
+    filesByPath.set(diff.path, {
+      path: diff.path,
+      oldContent: diff.old_text,
+      newContent: diff.new_text,
+    });
+  }
+  return [...filesByPath.values()];
+}
+
 function normalizeRunId(runId?: string) {
   return runId?.trim() || "__default__";
 }
@@ -69,6 +86,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (shouldSwitch && result.sessions.length > 0) {
         await get().hydrateSession(result.sessions[0].id);
       } else if (shouldSwitch) {
+        useUiStore.getState().clearDiffFiles();
         set({ activeSession: null, messages: [], streamingRuns: [] });
       }
     } catch {
@@ -125,6 +143,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       projectStore.upsertProject(result.project);
       projectStore.setActiveProject(result.project);
     }
+    useUiStore.getState().replaceDiffFiles(extractDiffFiles(result.messages));
 
     set((state) => {
       const nextSessions = state.sessions.some((session) => session.id === result.session.id)
@@ -143,6 +162,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const result = await rpc<{ session: Session; messages: Message[] }>("session.get", {
       session_id: sessionId,
     });
+    useUiStore.getState().replaceDiffFiles(extractDiffFiles(result.messages));
     const existingSessions = get().sessions;
     const nextSessions = existingSessions.some((session) => session.id === result.session.id)
       ? existingSessions.map((session) => (session.id === result.session.id ? result.session : session))
@@ -156,6 +176,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
   setActiveSession: (session) => {
     if (!session) {
+      useUiStore.getState().clearDiffFiles();
       set({ activeSession: null, messages: [], streamingRuns: [] });
       return;
     }

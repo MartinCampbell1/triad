@@ -9,40 +9,30 @@ from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator
 
-SCHEMA_VERSION = 1
-CANONICAL_STREAM_EVENT_TYPES = {
-    "text_delta",
-    "message_finalized",
-    "tool_use",
-    "tool_result",
-    "review_finding",
-    "diff_snapshot",
-    "stderr",
-    "run_completed",
-    "run_failed",
-    "terminal_output",
-    "system",
-}
-
-EVENT_TYPE_ALIASES: dict[str, str] = {
-    "message_delta": "text_delta",
-    "message_completed": "message_finalized",
-    "tool_started": "tool_use",
-    "tool_finished": "tool_result",
-    "completed": "run_completed",
-    "error": "run_failed",
-    "status": "system",
-}
-
 
 def _schema_path() -> Path:
     return Path(__file__).resolve().parents[2] / "schemas" / "stream-event.schema.json"
 
 
 @lru_cache(maxsize=1)
+def _schema() -> dict[str, Any]:
+    return json.loads(_schema_path().read_text(encoding="utf-8"))
+
+
+SCHEMA_VERSION = int(_schema().get("schema_version") or 1)
+CANONICAL_STREAM_EVENT_TYPES = {
+    str(entry["type"])
+    for entry in list(_schema().get("event_types") or [])
+    if isinstance(entry, Mapping) and entry.get("type")
+}
+EVENT_TYPE_ALIASES: dict[str, str] = {
+    str(key): str(value) for key, value in dict(_schema().get("aliases") or {}).items()
+}
+
+
+@lru_cache(maxsize=1)
 def _validator() -> Draft202012Validator:
-    schema = json.loads(_schema_path().read_text(encoding="utf-8"))
-    return Draft202012Validator(schema)
+    return Draft202012Validator(_schema())
 
 
 def canonical_event_type(raw_type: str | None) -> str:

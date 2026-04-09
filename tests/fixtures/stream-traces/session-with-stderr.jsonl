@@ -1,0 +1,2 @@
+{"schema_version":1,"session_id":"sess_stderr","run_id":"run_stderr","type":"stderr","provider":"claude","data":"tool warning"}
+{"schema_version":1,"session_id":"sess_stderr","run_id":"run_stderr","type":"run_failed","provider":"claude","error":"tool warning"}

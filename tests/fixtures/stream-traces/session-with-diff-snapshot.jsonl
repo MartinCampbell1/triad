@@ -1,0 +1,2 @@
+{"schema_version":1,"session_id":"sess_diff_trace","run_id":"run_diff_trace","type":"diff_snapshot","provider":"claude","path":"desktop/src/lib/rpc.ts","old_text":"legacy mock bridge","new_text":"fail-closed bridge"}
+{"schema_version":1,"session_id":"sess_diff_trace","run_id":"run_diff_trace","type":"run_completed","provider":"claude"}

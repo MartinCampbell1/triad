@@ -15,6 +15,7 @@ interface UiState {
   toggleDiffPanel: () => void;
   setTitlebarCompact: (value: boolean) => void;
   upsertDiffFile: (file: DiffFile) => void;
+  replaceDiffFiles: (files: DiffFile[]) => void;
   clearDiffFiles: () => void;
   setActiveDiffPath: (path: string | null) => void;
 }
@@ -44,6 +45,12 @@ export const useUiStore = create<UiState>((set) => ({
         diffPanelOpen: true,
         activeDiffPath: state.activeDiffPath ?? file.path,
       };
+    }),
+  replaceDiffFiles: (files) =>
+    set({
+      diffFiles: files,
+      activeDiffPath: files[0]?.path ?? null,
+      diffPanelOpen: files.length > 0,
     }),
   clearDiffFiles: () => set({ diffFiles: [], activeDiffPath: null, diffPanelOpen: false }),
   setActiveDiffPath: (path) => set({ activeDiffPath: path }),

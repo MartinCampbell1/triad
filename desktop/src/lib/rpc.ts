@@ -1,4 +1,5 @@
 import type { BridgeStatus, ProviderId, StreamEvent, StreamListener } from "./types";
+import { STREAM_EVENT_ALIASES, STREAM_SCHEMA_VERSION, STREAM_EVENT_TYPES } from "./stream-event-contract";
 
 type RpcParams = Record<string, unknown>;
 type BackendMode = "tauri" | "offline";
@@ -27,16 +28,6 @@ declare global {
     __TRIAD_TEST_BRIDGE__?: TestBridge;
   }
 }
-
-const EVENT_TYPE_ALIASES: Record<string, StreamEvent["type"]> = {
-  message_delta: "text_delta",
-  message_completed: "message_finalized",
-  tool_started: "tool_use",
-  tool_finished: "tool_result",
-  completed: "run_completed",
-  error: "run_failed",
-  status: "system",
-};
 
 const listeners = new Set<StreamListener>();
 const bridgeStatusListeners = new Set<(status: BridgeStatus) => void>();
@@ -142,23 +133,8 @@ function normalizeChunk(data: unknown): string {
 
 function normalizeEventType(value: unknown): StreamEvent["type"] | null {
   const raw = String(value ?? "system").trim() || "system";
-  const canonical = EVENT_TYPE_ALIASES[raw] ?? raw;
-  switch (canonical) {
-    case "text_delta":
-    case "message_finalized":
-    case "tool_use":
-    case "tool_result":
-    case "review_finding":
-    case "diff_snapshot":
-    case "stderr":
-    case "run_completed":
-    case "run_failed":
-    case "terminal_output":
-    case "system":
-      return canonical;
-    default:
-      return null;
-  }
+  const canonical = STREAM_EVENT_ALIASES[raw as keyof typeof STREAM_EVENT_ALIASES] ?? raw;
+  return (STREAM_EVENT_TYPES as readonly string[]).includes(canonical) ? (canonical as StreamEvent["type"]) : null;
 }
 
 function normalizeEvent(raw: unknown): StreamEvent | null {
@@ -173,7 +149,7 @@ function normalizeEvent(raw: unknown): StreamEvent | null {
   }
 
   const base = {
-    schema_version: 1 as const,
+    schema_version: STREAM_SCHEMA_VERSION,
     session_id: sessionId,
     run_id: event.run_id ? String(event.run_id) : undefined,
     provider: normalizeProvider(event.provider),

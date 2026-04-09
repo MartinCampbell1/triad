@@ -1,0 +1,4 @@
+{"schema_version":1,"session_id":"sess_gemini_send","run_id":"run_gemini_send","type":"system","provider":"gemini","content":"Gemini session started"}
+{"schema_version":1,"session_id":"sess_gemini_send","run_id":"run_gemini_send","type":"text_delta","provider":"gemini","delta":"Gemini answer"}
+{"schema_version":1,"session_id":"sess_gemini_send","run_id":"run_gemini_send","type":"message_finalized","provider":"gemini","content":"Gemini answer"}
+{"schema_version":1,"session_id":"sess_gemini_send","run_id":"run_gemini_send","type":"run_completed","provider":"gemini"}

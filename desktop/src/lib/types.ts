@@ -1,3 +1,6 @@
+import { STREAM_SCHEMA_VERSION } from "./stream-event-contract";
+import type { CanonicalStreamEventType } from "./stream-event-contract";
+
 export type ProviderId = "claude" | "codex" | "gemini";
 export type ModeId = "solo" | "critic" | "brainstorm" | "delegate";
 export type SessionStatus = "active" | "running" | "paused" | "completed" | "failed";
@@ -97,7 +100,7 @@ export interface DiffFile {
 }
 
 interface StreamBaseEvent {
-  schema_version?: 1;
+  schema_version?: typeof STREAM_SCHEMA_VERSION;
   session_id: string;
   run_id?: string;
   provider?: ProviderId;
@@ -109,17 +112,17 @@ interface StreamBaseEvent {
 }
 
 export type TextDeltaEvent = StreamBaseEvent & {
-  type: "text_delta";
+  type: Extract<CanonicalStreamEventType, "text_delta">;
   delta: string;
 };
 
 export type MessageFinalizedEvent = StreamBaseEvent & {
-  type: "message_finalized";
+  type: Extract<CanonicalStreamEventType, "message_finalized">;
   content: string;
 };
 
 export type ToolUseEvent = StreamBaseEvent & {
-  type: "tool_use";
+  type: Extract<CanonicalStreamEventType, "tool_use">;
   tool: string;
   input?: unknown;
   output?: unknown;
@@ -127,7 +130,7 @@ export type ToolUseEvent = StreamBaseEvent & {
 };
 
 export type ToolResultEvent = StreamBaseEvent & {
-  type: "tool_result";
+  type: Extract<CanonicalStreamEventType, "tool_result">;
   tool: string;
   input?: unknown;
   output?: unknown;
@@ -136,7 +139,7 @@ export type ToolResultEvent = StreamBaseEvent & {
 };
 
 export type ReviewFindingEvent = StreamBaseEvent & {
-  type: "review_finding";
+  type: Extract<CanonicalStreamEventType, "review_finding">;
   severity: ReviewFinding["severity"];
   file: string;
   title: string;
@@ -146,34 +149,34 @@ export type ReviewFindingEvent = StreamBaseEvent & {
 };
 
 export type DiffSnapshotEvent = StreamBaseEvent & {
-  type: "diff_snapshot";
+  type: Extract<CanonicalStreamEventType, "diff_snapshot">;
   path: string;
   old_text: string;
   new_text: string;
 };
 
 export type StderrEvent = StreamBaseEvent & {
-  type: "stderr";
+  type: Extract<CanonicalStreamEventType, "stderr">;
   data: string;
 };
 
 export type RunCompletedEvent = StreamBaseEvent & {
-  type: "run_completed";
+  type: Extract<CanonicalStreamEventType, "run_completed">;
 };
 
 export type RunFailedEvent = StreamBaseEvent & {
-  type: "run_failed";
+  type: Extract<CanonicalStreamEventType, "run_failed">;
   error: string;
 };
 
 export type TerminalOutputEvent = StreamBaseEvent & {
-  type: "terminal_output";
+  type: Extract<CanonicalStreamEventType, "terminal_output">;
   terminal_id: string;
   data: string;
 };
 
 export type SystemEvent = StreamBaseEvent & {
-  type: "system";
+  type: Extract<CanonicalStreamEventType, "system">;
   content: string;
 };
 
